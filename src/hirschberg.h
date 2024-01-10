@@ -76,11 +76,6 @@ static inline size_t utf8_offset(const char *s, size_t n) {
             if (sub.m == 0 || sub.n == 0 || (sub.m == 1 && sub.n == 1)) {                   \
                 string_subproblem_array_push(result, sub);                                  \
                 continue;                                                                   \
-            } else if (utf8 && (sub.m == utf8_next(sub.s1) &&                               \
-                                   sub.n == utf8_next(sub.s2))                              \
-            ) {                                                                             \
-                string_subproblem_array_push(result, sub);                                  \
-                continue;                                                                   \
             }                                                                               \
                                                                                             \
             size_t sub_m = floor((double)sub.m / 2.0);                                      \
