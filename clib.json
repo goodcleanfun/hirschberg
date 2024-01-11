@@ -8,7 +8,16 @@
     "dependencies": {
       "goodcleanfun/vector": "*"
     },
+    "development": {
+      "goodcleanfun/utf8": "*",
+      "silentbicycle/greatest": "*"
+    },
     "src": [
-      "src/hirschberg.h"
+      "src/hirschberg.h",
+      "src/double_costs.h",
+      "src/int32_costs.h",
+      "src/int64_costs.h",
+      "src/uint32_costs.h",
+      "src/uint64_costs.h"
     ]
   }
