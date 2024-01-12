@@ -18,6 +18,22 @@ typedef struct {
 
 VECTOR_INIT(string_subproblem_array, string_subproblem_t);
 
+typedef enum {
+    DISTANCE,
+    SIMILARITY
+} hirschberg_metric_t;
+
+typedef struct {
+    bool utf8;
+    bool allow_transpose;
+    void *costs;
+    void *rev_costs;
+    size_t cost_size;
+    hirschberg_metric_t metric;
+    string_subproblem_array *stack;
+    string_subproblem_array *result;
+} hirschberg_context_t;
+
 static inline size_t utf8_next(const char *str) {
     size_t i = 0;
     if (*str == '\0') return 0;
@@ -109,116 +125,132 @@ static inline bool subproblem_is_transpose(string_subproblem_t sub) {
 }
 
 
-#define HIRSCHBERG_INIT(name, cost_type)                                                    \
-    typedef void (*hirschberg_##name##_cost_function_t)(                                    \
-        const char *s1, size_t m, const char *s2, size_t n, bool rev, cost_type *costs);    \
-    bool hirschberg_subproblems_##name(                                                     \
-                                const char *s1, size_t m, const char *s2, size_t n,         \
-                                hirschberg_##name##_cost_function_t cost_function,          \
-                                bool utf8, bool allow_transpose,                            \
-                                cost_type *costs, cost_type *rev_costs, size_t cost_size,   \
-                                string_subproblem_array *stack,                             \
-                                string_subproblem_array *result) {                          \
-        if (m == 0 || n == 0) return false;                                                 \
-        if (m < n) {                                                                        \
-            const char *tmp = s1;                                                           \
-            s1 = s2;                                                                        \
-            s2 = tmp;                                                                       \
-            size_t tmp_n = m;                                                               \
-            m = n;                                                                          \
-            n = tmp_n;                                                                      \
-        }                                                                                   \
-                                                                                            \
-        size_t cost = 0;                                                                    \
-        if (stack->n > 0) {                                                                 \
-            string_subproblem_array_clear(stack);                                           \
-        }                                                                                   \
-        if (result->n > 0) {                                                                \
-            string_subproblem_array_clear(result);                                          \
-        }                                                                                   \
-                                                                                            \
-        string_subproblem_t prob = (string_subproblem_t) {                                  \
-            .s1 = s1,                                                                       \
-            .m = m,                                                                         \
-            .s2 = s2,                                                                       \
-            .n = n                                                                          \
-        };                                                                                  \
-        string_subproblem_array_push(stack, prob);                                          \
-                                                                                            \
-        string_subproblem_t sub;                                                            \
-        while (string_subproblem_array_pop(stack, &sub)) {                                  \
-            if (sub.m == 0 || sub.n == 0 || (sub.m == 1 && sub.n == 1)) {                   \
-                string_subproblem_array_push(result, sub);                                  \
-                continue;                                                                   \
-            } else if (allow_transpose && sub.m == 2 && sub.n == 2 && (                     \
-                      (utf8 && subproblem_is_transpose_utf8(sub))                           \
-                   || (!utf8 && subproblem_is_transpose(sub)))                              \
-            ) {                                                                             \
-                string_subproblem_array_push(result, sub);                                  \
-                continue;                                                                   \
-            }                                                                               \
-                                                                                            \
-            size_t sub_m = floor((double)sub.m / 2.0);                                      \
-            size_t sub_m_offset = sub_m;                                                    \
-            if (utf8) {                                                                     \
-                sub_m_offset = utf8_offset(sub.s1, sub_m);                                  \
-            }                                                                               \
-            if (allow_transpose && sub.m > 1 && (                                           \
-                      (utf8 && subproblem_border_transpose_utf8(sub, sub_m, sub_m_offset))  \
-                   || (!utf8 && subproblem_border_transpose(sub, sub_m))                    \
-            )) {                                                                            \
-                sub_m++;                                                                    \
-                if (utf8) {                                                                 \
-                    sub_m_offset += utf8_next(sub.s1 + sub_m_offset);                       \
-                } else {                                                                    \
-                    sub_m_offset++;                                                         \
-                }                                                                           \
-            }                                                                               \
-                                                                                            \
-            memset(costs, 0, sizeof(cost_type) * cost_size);                                \
-            bool rev = false;                                                               \
-            cost_function(sub.s1, sub_m, sub.s2, sub.n, rev, costs);                        \
-            cost_type lc = costs[sub.n];                                                    \
-            memset(rev_costs, 0, sizeof(cost_type) * cost_size);                            \
-            rev = true;                                                                     \
+#define HIRSCHBERG_INIT(name, cost_type)                                                        \
+    typedef void (*hirschberg_##name##_cost_function_t)(                                        \
+        const char *s1, size_t m, const char *s2, size_t n, bool rev, cost_type *costs);        \
+    bool hirschberg_subproblems_##name(                                                         \
+                                const char *s1, size_t m, const char *s2, size_t n,             \
+                                hirschberg_##name##_cost_function_t cost_function,              \
+                                hirschberg_context_t context) {                                 \
+        if (m == 0 || n == 0) return false;                                                     \
+        if (m < n) {                                                                            \
+            const char *tmp = s1;                                                               \
+            s1 = s2;                                                                            \
+            s2 = tmp;                                                                           \
+            size_t tmp_n = m;                                                                   \
+            m = n;                                                                              \
+            n = tmp_n;                                                                          \
+        }                                                                                       \
+                                                                                                \
+        bool utf8 = context.utf8;                                                               \
+        bool allow_transpose = context.allow_transpose;                                         \
+        cost_type *costs = (cost_type *)context.costs;                                          \
+        cost_type *rev_costs = (cost_type *)context.rev_costs;                                  \
+        size_t cost_size = context.cost_size;                                                   \
+        string_subproblem_array *stack = context.stack;                                         \
+        string_subproblem_array *result = context.result;                                       \
+        hirschberg_metric_t metric = context.metric;                                            \
+                                                                                                \
+        size_t cost = 0;                                                                        \
+        if (stack->n > 0) {                                                                     \
+            string_subproblem_array_clear(stack);                                               \
+        }                                                                                       \
+        if (result->n > 0) {                                                                    \
+            string_subproblem_array_clear(result);                                              \
+        }                                                                                       \
+                                                                                                \
+        string_subproblem_t prob = (string_subproblem_t) {                                      \
+            .s1 = s1,                                                                           \
+            .m = m,                                                                             \
+            .s2 = s2,                                                                           \
+            .n = n                                                                              \
+        };                                                                                      \
+        string_subproblem_array_push(stack, prob);                                              \
+                                                                                                \
+        string_subproblem_t sub;                                                                \
+        while (string_subproblem_array_pop(stack, &sub)) {                                      \
+            if (sub.m == 0 || sub.n == 0 || (sub.m == 1 && sub.n == 1)) {                       \
+                string_subproblem_array_push(result, sub);                                      \
+                continue;                                                                       \
+            } else if (allow_transpose && sub.m == 2 && sub.n == 2 && (                         \
+                      (utf8 && subproblem_is_transpose_utf8(sub))                               \
+                   || (!utf8 && subproblem_is_transpose(sub)))                                  \
+            ) {                                                                                 \
+                string_subproblem_array_push(result, sub);                                      \
+                continue;                                                                       \
+            }                                                                                   \
+                                                                                                \
+            size_t sub_m = floor((double)sub.m / 2.0);                                          \
+            size_t sub_m_offset = sub_m;                                                        \
+            if (utf8) {                                                                         \
+                sub_m_offset = utf8_offset(sub.s1, sub_m);                                      \
+            }                                                                                   \
+            if (allow_transpose && sub.m > 1 && (                                               \
+                      (utf8 && subproblem_border_transpose_utf8(sub, sub_m, sub_m_offset))      \
+                   || (!utf8 && subproblem_border_transpose(sub, sub_m))                        \
+            )) {                                                                                \
+                sub_m++;                                                                        \
+                if (utf8) {                                                                     \
+                    sub_m_offset += utf8_next(sub.s1 + sub_m_offset);                           \
+                } else {                                                                        \
+                    sub_m_offset++;                                                             \
+                }                                                                               \
+            }                                                                                   \
+                                                                                                \
+            memset(costs, 0, sizeof(cost_type) * cost_size);                                    \
+            bool rev = false;                                                                   \
+            cost_function(sub.s1, sub_m, sub.s2, sub.n, rev, costs);                            \
+            cost_type lc = costs[sub.n];                                                        \
+            memset(rev_costs, 0, sizeof(cost_type) * cost_size);                                \
+            rev = true;                                                                         \
             cost_function(sub.s1 + sub_m_offset, sub.m - sub_m, sub.s2, sub.n, rev, rev_costs); \
-            cost_type rc = rev_costs[sub.n];                                                \
-            cost_type max_sum = (cost_type) 0;                                              \
-            size_t sub_n = 0;                                                               \
-            for (size_t j = 0; j < sub.n + 1; j++) {                                        \
-                costs[j] += rev_costs[sub.n - j];                                           \
-                if (costs[j] > max_sum || (sub_n == 0 && j > 0 && costs[j] == max_sum)) {   \
-                    sub_n = j;                                                              \
-                    max_sum = costs[j];                                                     \
-                }                                                                           \
-            }                                                                               \
-            if ((sub_n == 0 && sub_m == 0) || (sub_n == sub.n && sub_m == sub.m)){                                                                               \
-                sub_m = 1;                                                                  \
-                sub_n = 1;                                                                  \
-            }                                                                               \
-            size_t sub_n_offset = sub_n;                                                    \
-            if (utf8) {                                                                     \
-                sub_n_offset = utf8_offset(sub.s2, sub_n);                                  \
-            }                                                                               \
-                                                                                            \
-            string_subproblem_t left_sub = (string_subproblem_t) {                          \
-                .s1 = sub.s1,                                                               \
-                .m = sub_m,                                                                 \
-                .s2 = sub.s2,                                                               \
-                .n = sub_n                                                                  \
-            };                                                                              \
-            string_subproblem_t right_sub = (string_subproblem_t) {                         \
-                .s1 = sub.s1 + sub_m_offset,                                                \
-                .m = sub.m - sub_m,                                                         \
-                .s2 = sub.s2 + sub_n_offset,                                                \
-                .n = sub.n - sub_n                                                          \
-            };                                                                              \
-            string_subproblem_array_push(stack, right_sub);                                 \
-            string_subproblem_array_push(stack, left_sub);                                  \
-                                                                                            \
-        }                                                                                   \
-                                                                                            \
-        return true;                                                                        \
+            cost_type rc = rev_costs[sub.n];                                                    \
+            cost_type best_sum = (cost_type) 0;                                                 \
+            size_t sub_n = 0;                                                                   \
+            if (metric == DISTANCE) {                                                           \
+                for (size_t j = 0; j < sub.n + 1; j++) {                                        \
+                    costs[j] += rev_costs[sub.n - j];                                           \
+                    if (costs[j] < best_sum || (sub_n == 0 && j > 0 && costs[j] == best_sum)) { \
+                        sub_n = j;                                                              \
+                        best_sum = costs[j];                                                    \
+                    }                                                                           \
+                }                                                                               \
+            } else if (metric == SIMILARITY) {                                                  \
+                for (size_t j = 0; j < sub.n + 1; j++) {                                        \
+                    costs[j] += rev_costs[sub.n - j];                                           \
+                    if (costs[j] > best_sum || (sub_n == 0 && j > 0 && costs[j] == best_sum)) { \
+                        sub_n = j;                                                              \
+                        best_sum = costs[j];                                                    \
+                    }                                                                           \
+                }                                                                               \
+            }                                                                                   \
+            if ((sub_n == 0 && sub_m == 0) || (sub_n == sub.n && sub_m == sub.m)){              \
+                sub_m = 1;                                                                      \
+                sub_n = 1;                                                                      \
+            }                                                                                   \
+            size_t sub_n_offset = sub_n;                                                        \
+            if (utf8) {                                                                         \
+                sub_n_offset = utf8_offset(sub.s2, sub_n);                                      \
+            }                                                                                   \
+                                                                                                \
+            string_subproblem_t left_sub = (string_subproblem_t) {                              \
+                .s1 = sub.s1,                                                                   \
+                .m = sub_m,                                                                     \
+                .s2 = sub.s2,                                                                   \
+                .n = sub_n                                                                      \
+            };                                                                                  \
+            string_subproblem_t right_sub = (string_subproblem_t) {                             \
+                .s1 = sub.s1 + sub_m_offset,                                                    \
+                .m = sub.m - sub_m,                                                             \
+                .s2 = sub.s2 + sub_n_offset,                                                    \
+                .n = sub.n - sub_n                                                              \
+            };                                                                                  \
+            string_subproblem_array_push(stack, right_sub);                                     \
+            string_subproblem_array_push(stack, left_sub);                                      \
+                                                                                                \
+        }                                                                                       \
+                                                                                                \
+        return true;                                                                            \
     }
 
 
