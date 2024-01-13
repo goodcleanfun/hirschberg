@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <math.h>
 #include <string.h>
@@ -22,6 +23,12 @@ typedef enum {
     DISTANCE,
     SIMILARITY
 } hirschberg_metric_t;
+
+typedef enum {
+    HIRSCHBERG_COST_STANDARD,
+    HIRSCHBERG_COST_OPTIONS,
+    HIRSCHBERG_COST_VARARGS
+} hirschberg_cost_function_type_t;
 
 typedef struct {
     bool utf8;
@@ -128,10 +135,22 @@ static inline bool subproblem_is_transpose(string_subproblem_t sub) {
 #define HIRSCHBERG_INIT(name, cost_type)                                                        \
     typedef void (*hirschberg_##name##_cost_function_t)(                                        \
         const char *s1, size_t m, const char *s2, size_t n, bool rev, cost_type *costs);        \
-    bool hirschberg_subproblems_##name(                                                         \
+    typedef void (*hirschberg_##name##_cost_function_options_t)(                                \
+        const char *s1, size_t m, const char *s2, size_t n, bool rev, cost_type *costs, void *options);   \
+    typedef void (*hirschberg_##name##_cost_function_varargs_t)(                                \
+        const char *s1, size_t m, const char *s2, size_t n, bool rev, cost_type *costs, va_list args);   \
+    typedef struct {                                                                            \
+        hirschberg_cost_function_type_t type;                                                   \
+        union {                                                                                 \
+            hirschberg_##name##_cost_function_t standard;                                       \
+            hirschberg_##name##_cost_function_options_t options;                                \
+            hirschberg_##name##_cost_function_varargs_t varargs;                                \
+        } function;                                                                             \
+    } hirschberg_##name##_cost_function_wrapper_t;                                              \
+    bool hirschberg_subproblems_##name##_core(                                                  \
                                 const char *s1, size_t m, const char *s2, size_t n,             \
-                                hirschberg_##name##_cost_function_t cost_function,              \
-                                hirschberg_context_t context) {                                 \
+                                hirschberg_##name##_cost_function_wrapper_t cost_function,      \
+                                hirschberg_context_t context, void *options, va_list args) {    \
         if (m == 0 || n == 0) return false;                                                     \
         if (m < n) {                                                                            \
             const char *tmp = s1;                                                               \
@@ -199,11 +218,26 @@ static inline bool subproblem_is_transpose(string_subproblem_t sub) {
                                                                                                 \
             memset(costs, 0, sizeof(cost_type) * cost_size);                                    \
             bool rev = false;                                                                   \
-            cost_function(sub.s1, sub_m, sub.s2, sub.n, rev, costs);                            \
+            if (cost_function.type == HIRSCHBERG_COST_STANDARD) {                               \
+                cost_function.function.standard(sub.s1, sub_m, sub.s2, sub.n, rev, costs);      \
+            } else if (cost_function.type == HIRSCHBERG_COST_OPTIONS) {                         \
+                cost_function.function.options(sub.s1, sub_m, sub.s2, sub.n, rev, costs, options); \
+            } else if (cost_function.type == HIRSCHBERG_COST_VARARGS) {                         \
+                cost_function.function.varargs(sub.s1, sub_m, sub.s2, sub.n, rev, costs, args); \
+            }                                                                                   \
             cost_type lc = costs[sub.n];                                                        \
             memset(rev_costs, 0, sizeof(cost_type) * cost_size);                                \
             rev = true;                                                                         \
-            cost_function(sub.s1 + sub_m_offset, sub.m - sub_m, sub.s2, sub.n, rev, rev_costs); \
+            if (cost_function.type == HIRSCHBERG_COST_STANDARD) {                               \
+                cost_function.function.standard(sub.s1 + sub_m_offset, sub.m - sub_m,           \
+                                                sub.s2, sub.n, rev, rev_costs);                 \
+            } else if (cost_function.type == HIRSCHBERG_COST_OPTIONS) {                         \
+                cost_function.function.options(sub.s1 + sub_m_offset, sub.m - sub_m,            \
+                                                sub.s2, sub.n, rev, rev_costs, options);        \
+            } else if (cost_function.type == HIRSCHBERG_COST_VARARGS) {                         \
+                cost_function.function.varargs(sub.s1 + sub_m_offset, sub.m - sub_m,            \
+                                                sub.s2, sub.n, rev, rev_costs, args);           \
+            }                                                                                   \
             cost_type rc = rev_costs[sub.n];                                                    \
             cost_type best_sum = (cost_type) 0;                                                 \
             size_t sub_n = 0;                                                                   \
@@ -251,6 +285,49 @@ static inline bool subproblem_is_transpose(string_subproblem_t sub) {
         }                                                                                       \
                                                                                                 \
         return true;                                                                            \
+    }                                                                                           \
+    bool hirschberg_subproblems_##name(                                                         \
+                                const char *s1, size_t m, const char *s2, size_t n,             \
+                                hirschberg_##name##_cost_function_t cost_function,              \
+                                hirschberg_context_t context) {                                 \
+        hirschberg_##name##_cost_function_wrapper_t cost_wrapper = {                            \
+            .type = HIRSCHBERG_COST_STANDARD,                                                   \
+            .function = {                                                                       \
+                .standard = cost_function                                                       \
+            }                                                                                   \
+        };                                                                                      \
+        return hirschberg_subproblems_##name##_core(s1, m, s2, n,                               \
+                                                    cost_wrapper, context, NULL, NULL);         \
+    }                                                                                           \
+    bool hirschberg_subproblems_##name##_options(                                               \
+                                const char *s1, size_t m, const char *s2, size_t n,             \
+                                hirschberg_##name##_cost_function_options_t cost_function,      \
+                                hirschberg_context_t context, void *options) {                  \
+        hirschberg_##name##_cost_function_wrapper_t cost_wrapper = {                            \
+            .type = HIRSCHBERG_COST_OPTIONS,                                                    \
+            .function = {                                                                       \
+                .options = cost_function                                                        \
+            }                                                                                   \
+        };                                                                                      \
+        return hirschberg_subproblems_##name##_core(s1, m, s2, n,                               \
+                                                       cost_wrapper, context, options, NULL);   \
+    }                                                                                           \
+    bool hirschberg_subproblems_##name##_varargs(                                               \
+                                const char *s1, size_t m, const char *s2, size_t n,             \
+                                hirschberg_##name##_cost_function_varargs_t cost_function,      \
+                                hirschberg_context_t context, ...) {                            \
+        va_list args;                                                                           \
+        va_start(args, context);                                                                \
+        hirschberg_##name##_cost_function_wrapper_t cost_wrapper = {                            \
+            .type = HIRSCHBERG_COST_VARARGS,                                                    \
+            .function = {                                                                       \
+                .varargs = cost_function                                                        \
+            }                                                                                   \
+        };                                                                                      \
+        bool result = hirschberg_subproblems_##name##_core(s1, m, s2, n,                        \
+                                                           cost_wrapper, context, NULL, args);  \
+        va_end(args);                                                                           \
+        return result;                                                                          \
     }
 
 
