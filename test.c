@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "greatest/greatest.h"
-#include "uint64_cost.h"
+#include "hirschberg_uint64.h"
 #include "utf8/utf8.h"
 
 typedef struct {
@@ -16,9 +16,63 @@ typedef struct {
 
 lcs_test_t test_data_lcs[] = {
     {
-        .s1="AGTACGCA",
-        .s2="TATGC",
-        .expected_lcs="ATGC"
+        .s1="GTCGTAGAATA",
+        .s2="CACGTAGTA",
+        .expected_lcs="CGTAGTA"
+    },
+    // address with edits and transposes
+    {
+        .s1="bam 30 lafyette ave bk new yrok 11217",
+        .s2="brooklyn academy of music 30 lafayette avenue brooklyn new york",
+        .expected_lcs="bam 30 lafyette ave bk new y/\\k"
+    },
+    // name
+    {
+        .s1="William Edward Burghardt Du Bois",
+        .s2="WEB DuBois",
+        .expected_lcs="WEB DuBois"
+    },
+    // abbreviations not at token boundaries
+    {
+        .s1="evidence lower bound",
+        .s2="elbo",
+        .expected_lcs="elbo"
+    },
+    // With punctuation
+    {
+        .s1="ca$h rules everything around me",
+        .s2="c.r.e.a.m.",
+        .expected_lcs="cream"
+    },
+    // hashtag speak
+    {
+        .s1="#throwbackthursdays",
+        .s2="#tbt",
+        .expected_lcs="#tbt"
+    },
+    // single transpose
+    {
+        .s1="the",
+        .s2="teh",
+        .expected_lcs="t/\\"
+    },
+    // multiple transposes
+    {
+        .s1="abcdef",
+        .s2="badcfe",
+        .expected_lcs="/\\/\\/\\"
+    },
+    // Spanish with unicode gaps
+    {
+        .s1="hernández",
+        .s2="hdez",
+        .expected_lcs="hdez"
+    },
+    // Spanish/UTF8 transpose
+    {
+        .s1="peña",
+        .s2="pñea",
+        .expected_lcs="p/\\a"
     }
 };
 
@@ -206,10 +260,18 @@ bool test_hirschberg_subproblem_lcs(lcs_test_t test) {
     uint64_t *rev_costs = costs + cost_size;
 
     bool allow_transpose = true;
+    hirschberg_context_t context = {
+        .utf8 = is_utf8,
+        .allow_transpose = allow_transpose,
+        .metric = SIMILARITY,
+        .costs = costs,
+        .rev_costs = rev_costs,
+        .cost_size = cost_size,
+        .stack = stack,
+        .result = result,
+    };
 
-    bool success = hirschberg_subproblems_uint64(s1, m, s2, n, !is_utf8 ? test_hirschberg_lcs_cost : test_hirschberg_lcs_utf8_cost,
-                                                 is_utf8, allow_transpose,
-                                                 costs, rev_costs, cost_size, stack, result);
+    bool success = hirschberg_subproblems_uint64(s1, m, s2, n, !is_utf8 ? test_hirschberg_lcs_cost : test_hirschberg_lcs_utf8_cost, context);
 
     char *alignment = hirschberg_alignment_lcs(result, max_len);
     if (strncmp(alignment, test.expected_lcs, strlen(test.expected_lcs)) != 0) {
