@@ -35,7 +35,7 @@ typedef struct {
     bool allow_transpose;
     void *costs;
     void *rev_costs;
-    size_t cost_size;
+    size_t costs_size;
     hirschberg_metric_t metric;
     string_subproblem_array *stack;
     string_subproblem_array *result;
@@ -165,7 +165,7 @@ static inline bool subproblem_is_transpose(string_subproblem_t sub) {
         bool allow_transpose = context.allow_transpose;                                         \
         cost_type *costs = (cost_type *)context.costs;                                          \
         cost_type *rev_costs = (cost_type *)context.rev_costs;                                  \
-        size_t cost_size = context.cost_size;                                                   \
+        size_t costs_size = context.costs_size;                                                 \
         string_subproblem_array *stack = context.stack;                                         \
         string_subproblem_array *result = context.result;                                       \
         hirschberg_metric_t metric = context.metric;                                            \
@@ -216,7 +216,7 @@ static inline bool subproblem_is_transpose(string_subproblem_t sub) {
                 }                                                                               \
             }                                                                                   \
                                                                                                 \
-            memset(costs, 0, sizeof(cost_type) * cost_size);                                    \
+            memset(costs, 0, sizeof(cost_type) * costs_size);                                   \
             bool rev = false;                                                                   \
             if (cost_function.type == HIRSCHBERG_COST_STANDARD) {                               \
                 cost_function.function.standard(sub.s1, sub_m, sub.s2, sub.n, rev, costs);      \
@@ -226,7 +226,7 @@ static inline bool subproblem_is_transpose(string_subproblem_t sub) {
                 cost_function.function.varargs(sub.s1, sub_m, sub.s2, sub.n, rev, costs, args); \
             }                                                                                   \
             cost_type lc = costs[sub.n];                                                        \
-            memset(rev_costs, 0, sizeof(cost_type) * cost_size);                                \
+            memset(rev_costs, 0, sizeof(cost_type) * costs_size);                               \
             rev = true;                                                                         \
             if (cost_function.type == HIRSCHBERG_COST_STANDARD) {                               \
                 cost_function.function.standard(sub.s1 + sub_m_offset, sub.m - sub_m,           \

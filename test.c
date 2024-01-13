@@ -254,10 +254,10 @@ bool test_hirschberg_subproblem_lcs(lcs_test_t test) {
     string_subproblem_array *stack = string_subproblem_array_new();
     string_subproblem_array *result = string_subproblem_array_new();
 
-    size_t cost_size = (n + 1) * 2;
+    size_t costs_size = (n + 1) * 2;
 
-    uint64_t *costs = malloc(sizeof(size_t) * cost_size * 2);
-    uint64_t *rev_costs = costs + cost_size;
+    uint64_t *costs = malloc(sizeof(size_t) * costs_size * 2);
+    uint64_t *rev_costs = costs + costs_size;
 
     bool allow_transpose = true;
     hirschberg_context_t context = {
@@ -266,7 +266,7 @@ bool test_hirschberg_subproblem_lcs(lcs_test_t test) {
         .metric = SIMILARITY,
         .costs = costs,
         .rev_costs = rev_costs,
-        .cost_size = cost_size,
+        .costs_size = costs_size,
         .stack = stack,
         .result = result,
     };
