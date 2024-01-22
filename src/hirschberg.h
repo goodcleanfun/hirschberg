@@ -132,7 +132,7 @@ static inline bool subproblem_is_transpose(string_subproblem_t sub) {
 #endif
 
 #ifndef VALUE_NAME
-#define VALUE_NAME VALUE_TYPE
+#error "Must define VALUE_NAME"
 #endif
 
 #define CONCAT3_(a, b, c) a ## b ## c
@@ -330,3 +330,4 @@ bool HIRSCHBERG_TYPED(subproblems_varargs)(const char *s1, size_t m, const char 
 #undef CONCAT3_
 #undef CONCAT3
 #undef HIRSCHBERG_TYPED
+#undef IMPROVES
