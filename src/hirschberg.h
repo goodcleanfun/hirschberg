@@ -8,8 +8,6 @@
 #include <math.h>
 #include <string.h>
 
-#include "vector/vector.h"
-
 typedef struct {
     const char *s1;
     size_t m;
@@ -17,26 +15,21 @@ typedef struct {
     size_t n;
 } string_subproblem_t;
 
-VECTOR_INIT(string_subproblem_array, string_subproblem_t);
+#define ARRAY_NAME string_subproblem_array
+#define ARRAY_TYPE string_subproblem_t
+#include "array/array.h"
+#undef ARRAY_NAME
+#undef ARRAY_TYPE
 
 typedef enum {
-    DISTANCE,
-    SIMILARITY
-} hirschberg_metric_t;
-
-typedef enum {
-    HIRSCHBERG_COST_STANDARD,
-    HIRSCHBERG_COST_OPTIONS,
-    HIRSCHBERG_COST_VARARGS
-} hirschberg_cost_function_type_t;
+    HIRSCHBERG_VALUE_STANDARD,
+    HIRSCHBERG_VALUE_OPTIONS,
+    HIRSCHBERG_VALUE_VARARGS
+} hirschberg_value_function_type_t;
 
 typedef struct {
     bool utf8;
     bool allow_transpose;
-    void *costs;
-    void *rev_costs;
-    size_t costs_size;
-    hirschberg_metric_t metric;
     string_subproblem_array *stack;
     string_subproblem_array *result;
 } hirschberg_context_t;
@@ -132,203 +125,208 @@ static inline bool subproblem_is_transpose(string_subproblem_t sub) {
 }
 
 
-#define HIRSCHBERG_INIT(name, cost_type)                                                        \
-    typedef void (*hirschberg_##name##_cost_function_t)(                                        \
-        const char *s1, size_t m, const char *s2, size_t n, bool rev, cost_type *costs);        \
-    typedef void (*hirschberg_##name##_cost_function_options_t)(                                \
-        const char *s1, size_t m, const char *s2, size_t n, bool rev, cost_type *costs, void *options);   \
-    typedef void (*hirschberg_##name##_cost_function_varargs_t)(                                \
-        const char *s1, size_t m, const char *s2, size_t n, bool rev, cost_type *costs, va_list args);   \
-    typedef struct {                                                                            \
-        hirschberg_cost_function_type_t type;                                                   \
-        union {                                                                                 \
-            hirschberg_##name##_cost_function_t standard;                                       \
-            hirschberg_##name##_cost_function_options_t options;                                \
-            hirschberg_##name##_cost_function_varargs_t varargs;                                \
-        } function;                                                                             \
-    } hirschberg_##name##_cost_function_wrapper_t;                                              \
-    bool hirschberg_subproblems_##name##_core(                                                  \
-                                const char *s1, size_t m, const char *s2, size_t n,             \
-                                hirschberg_##name##_cost_function_wrapper_t cost_function,      \
-                                hirschberg_context_t context, void *options, va_list args) {    \
-        if (m == 0 || n == 0) return false;                                                     \
-        if (m < n) {                                                                            \
-            const char *tmp = s1;                                                               \
-            s1 = s2;                                                                            \
-            s2 = tmp;                                                                           \
-            size_t tmp_n = m;                                                                   \
-            m = n;                                                                              \
-            n = tmp_n;                                                                          \
-        }                                                                                       \
-                                                                                                \
-        bool utf8 = context.utf8;                                                               \
-        bool allow_transpose = context.allow_transpose;                                         \
-        cost_type *costs = (cost_type *)context.costs;                                          \
-        cost_type *rev_costs = (cost_type *)context.rev_costs;                                  \
-        size_t costs_size = context.costs_size;                                                 \
-        string_subproblem_array *stack = context.stack;                                         \
-        string_subproblem_array *result = context.result;                                       \
-        hirschberg_metric_t metric = context.metric;                                            \
-                                                                                                \
-        size_t cost = 0;                                                                        \
-        if (stack->n > 0) {                                                                     \
-            string_subproblem_array_clear(stack);                                               \
-        }                                                                                       \
-        if (result->n > 0) {                                                                    \
-            string_subproblem_array_clear(result);                                              \
-        }                                                                                       \
-                                                                                                \
-        string_subproblem_t prob = (string_subproblem_t) {                                      \
-            .s1 = s1,                                                                           \
-            .m = m,                                                                             \
-            .s2 = s2,                                                                           \
-            .n = n                                                                              \
-        };                                                                                      \
-        string_subproblem_array_push(stack, prob);                                              \
-                                                                                                \
-        string_subproblem_t sub;                                                                \
-        while (string_subproblem_array_pop(stack, &sub)) {                                      \
-            if (sub.m == 0 || sub.n == 0 || (sub.m == 1 && sub.n == 1)) {                       \
-                string_subproblem_array_push(result, sub);                                      \
-                continue;                                                                       \
-            } else if (allow_transpose && sub.m == 2 && sub.n == 2 && (                         \
-                      (utf8 && subproblem_is_transpose_utf8(sub))                               \
-                   || (!utf8 && subproblem_is_transpose(sub)))                                  \
-            ) {                                                                                 \
-                string_subproblem_array_push(result, sub);                                      \
-                continue;                                                                       \
-            }                                                                                   \
-                                                                                                \
-            size_t sub_m = floor((double)sub.m / 2.0);                                          \
-            size_t sub_m_offset = sub_m;                                                        \
-            if (utf8) {                                                                         \
-                sub_m_offset = utf8_offset(sub.s1, sub_m);                                      \
-            }                                                                                   \
-            if (allow_transpose && sub.m > 1 && (                                               \
-                      (utf8 && subproblem_border_transpose_utf8(sub, sub_m, sub_m_offset))      \
-                   || (!utf8 && subproblem_border_transpose(sub, sub_m))                        \
-            )) {                                                                                \
-                sub_m++;                                                                        \
-                if (utf8) {                                                                     \
-                    sub_m_offset += utf8_next(sub.s1 + sub_m_offset);                           \
-                } else {                                                                        \
-                    sub_m_offset++;                                                             \
-                }                                                                               \
-            }                                                                                   \
-                                                                                                \
-            memset(costs, 0, sizeof(cost_type) * costs_size);                                   \
-            bool rev = false;                                                                   \
-            if (cost_function.type == HIRSCHBERG_COST_STANDARD) {                               \
-                cost_function.function.standard(sub.s1, sub_m, sub.s2, sub.n, rev, costs);      \
-            } else if (cost_function.type == HIRSCHBERG_COST_OPTIONS) {                         \
-                cost_function.function.options(sub.s1, sub_m, sub.s2, sub.n, rev, costs, options); \
-            } else if (cost_function.type == HIRSCHBERG_COST_VARARGS) {                         \
-                cost_function.function.varargs(sub.s1, sub_m, sub.s2, sub.n, rev, costs, args); \
-            }                                                                                   \
-            cost_type lc = costs[sub.n];                                                        \
-            memset(rev_costs, 0, sizeof(cost_type) * costs_size);                               \
-            rev = true;                                                                         \
-            if (cost_function.type == HIRSCHBERG_COST_STANDARD) {                               \
-                cost_function.function.standard(sub.s1 + sub_m_offset, sub.m - sub_m,           \
-                                                sub.s2, sub.n, rev, rev_costs);                 \
-            } else if (cost_function.type == HIRSCHBERG_COST_OPTIONS) {                         \
-                cost_function.function.options(sub.s1 + sub_m_offset, sub.m - sub_m,            \
-                                                sub.s2, sub.n, rev, rev_costs, options);        \
-            } else if (cost_function.type == HIRSCHBERG_COST_VARARGS) {                         \
-                cost_function.function.varargs(sub.s1 + sub_m_offset, sub.m - sub_m,            \
-                                                sub.s2, sub.n, rev, rev_costs, args);           \
-            }                                                                                   \
-            cost_type rc = rev_costs[sub.n];                                                    \
-            cost_type best_sum = (cost_type) 0;                                                 \
-            size_t sub_n = 0;                                                                   \
-            if (metric == DISTANCE) {                                                           \
-                for (size_t j = 0; j < sub.n + 1; j++) {                                        \
-                    costs[j] += rev_costs[sub.n - j];                                           \
-                    if (costs[j] < best_sum || (sub_n == 0 && j > 0 && costs[j] == best_sum)) { \
-                        sub_n = j;                                                              \
-                        best_sum = costs[j];                                                    \
-                    }                                                                           \
-                }                                                                               \
-            } else if (metric == SIMILARITY) {                                                  \
-                for (size_t j = 0; j < sub.n + 1; j++) {                                        \
-                    costs[j] += rev_costs[sub.n - j];                                           \
-                    if (costs[j] > best_sum || (sub_n == 0 && j > 0 && costs[j] == best_sum)) { \
-                        sub_n = j;                                                              \
-                        best_sum = costs[j];                                                    \
-                    }                                                                           \
-                }                                                                               \
-            }                                                                                   \
-            if ((sub_n == 0 && sub_m == 0) || (sub_n == sub.n && sub_m == sub.m)){              \
-                sub_m = 1;                                                                      \
-                sub_n = 1;                                                                      \
-            }                                                                                   \
-            size_t sub_n_offset = sub_n;                                                        \
-            if (utf8) {                                                                         \
-                sub_n_offset = utf8_offset(sub.s2, sub_n);                                      \
-            }                                                                                   \
-                                                                                                \
-            string_subproblem_t left_sub = (string_subproblem_t) {                              \
-                .s1 = sub.s1,                                                                   \
-                .m = sub_m,                                                                     \
-                .s2 = sub.s2,                                                                   \
-                .n = sub_n                                                                      \
-            };                                                                                  \
-            string_subproblem_t right_sub = (string_subproblem_t) {                             \
-                .s1 = sub.s1 + sub_m_offset,                                                    \
-                .m = sub.m - sub_m,                                                             \
-                .s2 = sub.s2 + sub_n_offset,                                                    \
-                .n = sub.n - sub_n                                                              \
-            };                                                                                  \
-            string_subproblem_array_push(stack, right_sub);                                     \
-            string_subproblem_array_push(stack, left_sub);                                      \
-                                                                                                \
-        }                                                                                       \
-                                                                                                \
-        return true;                                                                            \
-    }                                                                                           \
-    bool hirschberg_subproblems_##name(                                                         \
-                                const char *s1, size_t m, const char *s2, size_t n,             \
-                                hirschberg_##name##_cost_function_t cost_function,              \
-                                hirschberg_context_t context) {                                 \
-        hirschberg_##name##_cost_function_wrapper_t cost_wrapper = {                            \
-            .type = HIRSCHBERG_COST_STANDARD,                                                   \
-            .function = {                                                                       \
-                .standard = cost_function                                                       \
-            }                                                                                   \
-        };                                                                                      \
-        return hirschberg_subproblems_##name##_core(s1, m, s2, n,                               \
-                                                    cost_wrapper, context, NULL, NULL);         \
-    }                                                                                           \
-    bool hirschberg_subproblems_##name##_options(                                               \
-                                const char *s1, size_t m, const char *s2, size_t n,             \
-                                hirschberg_##name##_cost_function_options_t cost_function,      \
-                                hirschberg_context_t context, void *options) {                  \
-        hirschberg_##name##_cost_function_wrapper_t cost_wrapper = {                            \
-            .type = HIRSCHBERG_COST_OPTIONS,                                                    \
-            .function = {                                                                       \
-                .options = cost_function                                                        \
-            }                                                                                   \
-        };                                                                                      \
-        return hirschberg_subproblems_##name##_core(s1, m, s2, n,                               \
-                                                       cost_wrapper, context, options, NULL);   \
-    }                                                                                           \
-    bool hirschberg_subproblems_##name##_varargs(                                               \
-                                const char *s1, size_t m, const char *s2, size_t n,             \
-                                hirschberg_##name##_cost_function_varargs_t cost_function,      \
-                                hirschberg_context_t context, ...) {                            \
-        va_list args;                                                                           \
-        va_start(args, context);                                                                \
-        hirschberg_##name##_cost_function_wrapper_t cost_wrapper = {                            \
-            .type = HIRSCHBERG_COST_VARARGS,                                                    \
-            .function = {                                                                       \
-                .varargs = cost_function                                                        \
-            }                                                                                   \
-        };                                                                                      \
-        bool result = hirschberg_subproblems_##name##_core(s1, m, s2, n,                        \
-                                                           cost_wrapper, context, NULL, args);  \
-        va_end(args);                                                                           \
-        return result;                                                                          \
+#endif // HIRSCHBERG_H
+
+#ifndef VALUE_TYPE
+#error "Must define VALUE_TYPE"
+#endif
+
+#ifndef VALUE_NAME
+#define VALUE_NAME VALUE_TYPE
+#endif
+
+#define CONCAT3_(a, b, c) a ## b ## c
+#define CONCAT3(a, b, c) CONCAT3_(a, b, c)
+#define HIRSCHBERG_TYPED(name) CONCAT3(hirschberg_, VALUE_NAME, _##name)
+// e.g. HIRSCHBERG_TYPED(foo) for double would = hirschberg_double_foo
+
+
+typedef void (*HIRSCHBERG_TYPED(value_function_t))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values);
+typedef void (*HIRSCHBERG_TYPED(value_function_options_t))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, void *options);
+typedef void (*HIRSCHBERG_TYPED(value_function_varargs_t))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, va_list args);
+
+typedef struct {
+    hirschberg_value_function_type_t type;
+    union {
+        HIRSCHBERG_TYPED(value_function_t) standard;
+        HIRSCHBERG_TYPED(value_function_options_t) options;
+        HIRSCHBERG_TYPED(value_function_varargs_t) varargs;
+    } function;
+} HIRSCHBERG_TYPED(value_function_generic_t);
+
+
+
+static bool HIRSCHBERG_TYPED(subproblems_core)(const char *s1, size_t m, const char *s2, size_t n, hirschberg_context_t context,
+                                               HIRSCHBERG_TYPED(value_function_generic_t) value_function,
+                                               VALUE_TYPE *values, VALUE_TYPE *rev_values, size_t values_len,
+                                               void *options, va_list args) {
+    if (m == 0 || n == 0) return false;
+    if (m < n) {
+        const char *tmp = s1;
+        s1 = s2;
+        s2 = tmp;
+        size_t tmp_n = m;
+        m = n;
+        n = tmp_n;
+    }
+    bool utf8 = context.utf8;
+    bool allow_transpose = context.allow_transpose;
+    string_subproblem_array *stack = context.stack;
+    string_subproblem_array *result = context.result;
+
+    if (stack->n > 0) {
+        string_subproblem_array_clear(stack);
+    }
+    if (result->n > 0) {
+        string_subproblem_array_clear(result);
     }
 
+    string_subproblem_t prob = (string_subproblem_t) {
+        .s1 = s1,
+        .m = m,
+        .s2 = s2,
+        .n = n
+    };
+    string_subproblem_array_push(stack, prob);
 
-#endif
+    string_subproblem_t sub;
+    while (string_subproblem_array_pop(stack, &sub)) {
+        if (sub.m == 0 || sub.n == 0 || (sub.m == 1 && sub.n == 1)) {
+            string_subproblem_array_push(result, sub);
+            continue;
+        } else if (allow_transpose && sub.m == 2 && sub.n == 2 && (
+                    (utf8 && subproblem_is_transpose_utf8(sub))
+                || (!utf8 && subproblem_is_transpose(sub)))
+        ) {
+            string_subproblem_array_push(result, sub);
+            continue;
+        }
+
+        size_t sub_m = floor((double)sub.m / 2.0);
+        size_t sub_m_offset = sub_m;
+        if (utf8) {
+            sub_m_offset = utf8_offset(sub.s1, sub_m);
+        }
+        if (allow_transpose && sub.m > 1 && (
+                    (utf8 && subproblem_border_transpose_utf8(sub, sub_m, sub_m_offset))
+                || (!utf8 && subproblem_border_transpose(sub, sub_m))
+        )) {
+            sub_m++;
+            if (utf8) {
+                sub_m_offset += utf8_next(sub.s1 + sub_m_offset);
+            } else {
+                sub_m_offset++;
+            }
+        }
+
+        memset(values, 0, sizeof(VALUE_TYPE) * values_len);
+        memset(rev_values, 0, sizeof(VALUE_TYPE) * values_len);
+
+        // reverse flag is false on the forward pass and true on the reverse pass
+        static const bool FORWARD = false;
+        static const bool REVERSE = true;
+        if (value_function.type == HIRSCHBERG_VALUE_STANDARD) {
+            value_function.function.standard(sub.s1, sub_m, sub.s2, sub.n, FORWARD, values);
+            value_function.function.standard(sub.s1 + sub_m_offset, sub.m - sub_m,
+                                            sub.s2, sub.n, REVERSE, rev_values);
+        } else if (value_function.type == HIRSCHBERG_VALUE_OPTIONS) {
+            value_function.function.options(sub.s1, sub_m, sub.s2, sub.n, FORWARD, values, options);
+            value_function.function.options(sub.s1 + sub_m_offset, sub.m - sub_m,
+                                            sub.s2, sub.n, REVERSE, rev_values, options);
+        } else if (value_function.type == HIRSCHBERG_VALUE_VARARGS) {
+            value_function.function.varargs(sub.s1, sub_m, sub.s2, sub.n, FORWARD, values, args);
+            value_function.function.varargs(sub.s1 + sub_m_offset, sub.m - sub_m,
+                                            sub.s2, sub.n, REVERSE, rev_values, args);
+        } else {
+            return false;
+        }
+
+        VALUE_TYPE opt_sum = (VALUE_TYPE) 0;
+
+        size_t sub_n = 0;
+
+        // 
+        #ifdef HIRSCHBERG_SIMILARITY
+        #define IMPROVES >
+        #else
+        #define IMPROVES <
+        #endif
+
+        for (size_t j = 0; j < sub.n + 1; j++) {
+            values[j] += rev_values[sub.n - j];
+
+            if (values[j] IMPROVES opt_sum || (sub_n == 0 && j > 0 && values[j] == opt_sum)) {
+                sub_n = j;
+                opt_sum = values[j];
+            }
+        }
+
+        if ((sub_n == 0 && sub_m == 0) || (sub_n == sub.n && sub_m == sub.m)){
+            sub_m = 1;
+            sub_n = 1;
+        }
+        size_t sub_n_offset = sub_n;
+        if (utf8) {
+            sub_n_offset = utf8_offset(sub.s2, sub_n);
+        }
+
+        string_subproblem_t left_sub = (string_subproblem_t) {
+            .s1 = sub.s1,
+            .m = sub_m,
+            .s2 = sub.s2,
+            .n = sub_n
+        };
+        string_subproblem_t right_sub = (string_subproblem_t) {
+            .s1 = sub.s1 + sub_m_offset,
+            .m = sub.m - sub_m,
+            .s2 = sub.s2 + sub_n_offset,
+            .n = sub.n - sub_n
+        };
+        string_subproblem_array_push(stack, right_sub);
+        string_subproblem_array_push(stack, left_sub);
+    }
+    return true;
+}
+
+
+bool HIRSCHBERG_TYPED(subproblems)(const char *s1, size_t m, const char *s2, size_t n,
+                                   hirschberg_context_t context, HIRSCHBERG_TYPED(value_function_t) value_function,
+                                   VALUE_TYPE *values, VALUE_TYPE *rev_values, size_t values_len) {
+    return HIRSCHBERG_TYPED(subproblems_core)(s1, m, s2, n, context,
+                            (HIRSCHBERG_TYPED(value_function_generic_t)){
+                                .type = HIRSCHBERG_VALUE_STANDARD,
+                                .function = {
+                                    .standard = value_function
+                                }
+                            }, values, rev_values, values_len, NULL, NULL);
+}
+
+
+bool HIRSCHBERG_TYPED(subproblems_options)(const char *s1, size_t m, const char *s2, size_t n,
+                                           hirschberg_context_t context, HIRSCHBERG_TYPED(value_function_options_t) value_function,
+                                           VALUE_TYPE *values, VALUE_TYPE *rev_values, size_t values_len, void *options) {
+    return HIRSCHBERG_TYPED(subproblems_core)(s1, m, s2, n, context,
+                            (HIRSCHBERG_TYPED(value_function_generic_t)){
+                                .type = HIRSCHBERG_VALUE_OPTIONS,
+                                .function = {
+                                    .options = value_function
+                                }
+                            }, values, rev_values, values_len, options, NULL);
+}
+
+bool HIRSCHBERG_TYPED(subproblems_varargs)(const char *s1, size_t m, const char *s2, size_t n,
+                                           hirschberg_context_t context, HIRSCHBERG_TYPED(value_function_varargs_t) value_function,
+                                           VALUE_TYPE *values, VALUE_TYPE *rev_values, size_t values_len, va_list args) {
+    bool result = HIRSCHBERG_TYPED(subproblems_core)(s1, m, s2, n, context,
+                            (HIRSCHBERG_TYPED(value_function_generic_t)){
+                                .type = HIRSCHBERG_VALUE_VARARGS,
+                                .function = {
+                                    .varargs = value_function
+                                }
+                            }, values, rev_values, values_len, NULL, args);
+    return result;
+}
+
+#undef CONCAT3_
+#undef CONCAT3
+#undef HIRSCHBERG_TYPED

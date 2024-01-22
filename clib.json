@@ -6,7 +6,7 @@
     "keywords": ["hirschberg", "alignment", "edit", "sequence"],
     "license": "MIT",
     "dependencies": {
-      "goodcleanfun/vector": "*"
+      "goodcleanfun/array": "*"
     },
     "development": {
       "goodcleanfun/utf8": "*",

@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "greatest/greatest.h"
-#include "hirschberg_uint64.h"
+#include "uint64_sim.h"
 #include "utf8/utf8.h"
 
 typedef struct {
@@ -263,15 +263,13 @@ bool test_hirschberg_subproblem_lcs(lcs_test_t test) {
     hirschberg_context_t context = {
         .utf8 = is_utf8,
         .allow_transpose = allow_transpose,
-        .metric = SIMILARITY,
-        .costs = costs,
-        .rev_costs = rev_costs,
-        .costs_size = costs_size,
         .stack = stack,
         .result = result,
     };
 
-    bool success = hirschberg_subproblems_uint64(s1, m, s2, n, !is_utf8 ? test_hirschberg_lcs_cost : test_hirschberg_lcs_utf8_cost, context);
+    bool success = hirschberg_uint64_sim_subproblems(s1, m, s2, n, context,
+                                                    !is_utf8 ? test_hirschberg_lcs_cost : test_hirschberg_lcs_utf8_cost,
+                                                    costs, rev_costs, costs_size);
 
     char *alignment = hirschberg_alignment_lcs(result, max_len);
     if (strncmp(alignment, test.expected_lcs, strlen(test.expected_lcs)) != 0) {
