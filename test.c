@@ -22,9 +22,9 @@ lcs_test_t test_data_lcs[] = {
     },
     // address with edits and transposes
     {
-        .s1="bam 30 lafyette ave bk new yrok 11217",
-        .s2="brooklyn academy of music 30 lafayette avenue brooklyn new york",
-        .expected_lcs="bam 30 lafyette ave bk new y/\\k"
+        .s1="bam 30 lafyette ave bk new yROK 11217",
+        .s2="Brooklyn Academy of Music 30 Lafayette Avenue Brooklyn New York",
+        .expected_lcs="bam 30 lafyette ave bk new y/\\K"
     },
     // name
     {
@@ -64,7 +64,7 @@ lcs_test_t test_data_lcs[] = {
     },
     // Spanish with unicode gaps
     {
-        .s1="hernández",
+        .s1="Hernández",
         .s2="hdez",
         .expected_lcs="hdez"
     },
@@ -76,8 +76,6 @@ lcs_test_t test_data_lcs[] = {
     }
 };
 
-
-
 void test_hirschberg_lcs_cost(const char *s1, size_t m, const char *s2, size_t n, bool reverse, uint64_t *costs) {
     uint64_t diag = 0;
     uint64_t up = 0;
@@ -86,13 +84,13 @@ void test_hirschberg_lcs_cost(const char *s1, size_t m, const char *s2, size_t n
     uint64_t *cur_lcs = costs;
     uint64_t *prev_lcs = costs + n + 1;
     for (size_t i = 1; i < m + 1; i++) {
-        char c1 = !reverse ? s1[i - 1] : s1[m - i];
+        char c1 = !reverse ? tolower(s1[i - 1]) : tolower(s1[m - i]);
         for (size_t j = 1; j < n + 1; j++) {
-            char c2 = !reverse ? s2[j - 1] : s2[n - j];
+            char c2 = !reverse ? tolower(s2[j - 1]) : tolower(s2[n - j]);
             uint64_t val = 0;
             if (c1 == c2) {
                 val = prev_lcs[j - 1] + 1;
-            } else if (j > 1 && i > 1 && !reverse && c1 != c2 && c1 == s2[j - 2] && s1[i - 2] == c2) {
+            } else if (j > 1 && i > 1 && !reverse && c1 != c2 && c1 == tolower(s2[j - 2]) && tolower(s1[i - 2]) == c2) {
                 val = prev_lcs[j - 2] + 2;
             } else if (prev_lcs[j] > cur_lcs[j - 1]) {
                 val = prev_lcs[j];
@@ -137,6 +135,7 @@ void test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, siz
             c1_len = utf8proc_iterate_reversed(s1_ptr, s1_len - s1_consumed, &c1);
         }
         if (c1 == 0 || c1_len <= 0) break;
+        c1 = utf8proc_tolower(c1);
         s2_ptr = (const unsigned char *) s2;
         s2_consumed = 0;
         for (size_t j = 1; j < n + 1; j++) {
@@ -148,6 +147,8 @@ void test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, siz
                 c2_len = utf8proc_iterate_reversed(s2_ptr, s2_len - s2_consumed, &c2);
             }
             if (c2 == 0 || c2_len == 0) break;
+
+            c2 = utf8proc_tolower(c2);
 
             uint64_t val = 0;
             if (c1 == c2) {
@@ -196,7 +197,7 @@ char *hirschberg_alignment_lcs(string_subproblem_array *result, size_t max_len) 
             const unsigned char *s1_ptr = (const unsigned char *) sub.s1;
             for (size_t j = 0; j < sub.m; j++) {
                 c1_len = utf8proc_iterate(s1_ptr, -1, &c1);
-                if (c2 == c1) {
+                if (utf8proc_tolower(c2) == utf8proc_tolower(c1)) {
                     for (size_t k = 0; k < c2_len; k++) {
                         alignment[idx++] = *(sub.s2 + k);
                     }
