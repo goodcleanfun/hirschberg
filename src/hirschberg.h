@@ -8,6 +8,8 @@
 #include <math.h>
 #include <string.h>
 
+#include "utf8proc/utf8proc.h"
+
 typedef struct {
     const char *s1;
     size_t m;
@@ -61,69 +63,95 @@ static inline size_t utf8_offset(const char *s, size_t n) {
     return pos;
 }
 
+
+#ifndef HIRSCHBERG_CHAR_EQUAL
+#ifndef HIRSCHBERG_CASE_SENSITIVE
+#define HIRSCHBERG_CHAR_EQUAL(a, b) (tolower(a) == tolower(b))
+#else
+#define HIRSCHBERG_CHAR_EQUAL(a, b) ((a) == (b))
+#endif
+#endif
+
 static inline bool subproblem_border_transpose(string_subproblem_t sub, size_t split) {
     if (sub.m == 0 || sub.n == 0 || split == 0) return false;
     char split_left = sub.s1[split - 1];
     char split_right = sub.s1[split];
 
     for (size_t j = 1; j < sub.n; j++) {
-        if (sub.s2[j - 1] == split_right && sub.s2[j] == split_left && sub.s2[j - 1] != sub.s2[j]) {
+        if (HIRSCHBERG_CHAR_EQUAL(sub.s2[j - 1], split_right) && HIRSCHBERG_CHAR_EQUAL(sub.s2[j], split_left) && !(HIRSCHBERG_CHAR_EQUAL(sub.s2[j - 1], sub.s2[j]))) {
             return true;
         }
     }
     return false;
 }
 
+static inline bool subproblem_is_transpose(string_subproblem_t sub) {
+    return sub.m == 2 && sub.n == 2
+        && HIRSCHBERG_CHAR_EQUAL(sub.s1[0], sub.s2[1])
+        && HIRSCHBERG_CHAR_EQUAL(sub.s1[1], sub.s2[0])
+        && !(HIRSCHBERG_CHAR_EQUAL(sub.s1[0], sub.s1[1]));
+}
+
+#ifndef HIRSCHBERG_UTF8_CHAR_EQUAL
+#ifndef HIRSCHBERG_CASE_SENSITIVE
+#define HIRSCHBERG_UTF8_CHAR_EQUAL(a, b) (utf8proc_tolower(a) == utf8proc_tolower(b))
+#else
+#define HIRSCHBERG_UTF8_CHAR_EQUAL(a, b) ((a) == (b))
+#endif
+#endif
+
 static inline bool subproblem_border_transpose_utf8(string_subproblem_t  sub, size_t split, size_t offset) {
     if (sub.m == 0 || sub.n == 0 || split == 0) return false;
-    size_t left_len = utf8_prev(sub.s1, offset);
-    size_t left_pos = offset - left_len;
+    int32_t left_ch = 0;
+    size_t prev_utf8_len = utf8_prev(sub.s1, offset);
+    size_t left_pos = offset - prev_utf8_len;
+    ssize_t left_len = utf8proc_iterate((const uint8_t *)sub.s1 + left_pos, -1, &left_ch);
     size_t right_pos = offset;
-    size_t right_len = utf8_next(sub.s1 + offset);
+    int32_t right_ch = 0;
+    ssize_t right_len = utf8proc_iterate((const uint8_t *)sub.s1 + offset, -1, &right_ch);
     // If the characters are equal, then it's not a transpose and we can return early
-    if (left_len == right_len && memcmp(sub.s1 + left_pos, sub.s1 + right_pos, left_len) == 0) return false;
+    if (left_len == right_len && (HIRSCHBERG_UTF8_CHAR_EQUAL(left_ch, right_ch))) return false;
+
+    int32_t ch = 0;
+    int32_t prev_ch = 0;
 
     size_t prev_start = 0;
-    size_t prev_len = utf8_next(sub.s2);
+    ssize_t prev_len = utf8proc_iterate((const uint8_t *)sub.s2, -1, &prev_ch);
+    if (prev_len < 0) return false;
     size_t start = prev_len;
     for (size_t j = 1; j < sub.n; j++) {
-        size_t cur_len = utf8_next(sub.s2 + start);
+        ssize_t cur_len = utf8proc_iterate((const uint8_t *)sub.s2 + start, -1, &ch);
+        if (cur_len < 0) return false;
 
-        if (prev_len == right_len && cur_len == left_len && (
-                (memcmp(sub.s2 + prev_start, sub.s1 + right_pos, right_len) == 0)
-             && (memcmp(sub.s2 + start, sub.s1 + left_pos, left_len) == 0))
+        if (HIRSCHBERG_UTF8_CHAR_EQUAL(prev_ch, right_ch)
+         && HIRSCHBERG_UTF8_CHAR_EQUAL(ch, left_ch)
         ) {
             return true;
         }
         prev_start = start;
         prev_len = cur_len;
+        prev_ch = ch;
         start += cur_len;
     }
 
     return false;
 }
 
-
 static inline bool subproblem_is_transpose_utf8(string_subproblem_t sub) {
     if (sub.m != 2 || sub.n != 2) return false;
-    size_t s1_c1_len = utf8_next(sub.s1);
-    size_t s1_c2_len = utf8_next(sub.s1 + s1_c1_len);
-    size_t s2_c1_len = utf8_next(sub.s2);
-    size_t s2_c2_len = utf8_next(sub.s2 + s2_c1_len);
-    if (s1_c1_len == 0 || s1_c2_len == 0 || s2_c1_len == 0 || s2_c2_len == 0) return false;
-    return (s1_c1_len == s2_c2_len && s1_c2_len == s2_c1_len
-        && (memcmp(sub.s1, sub.s2 + s2_c1_len, s1_c1_len) == 0)
-        && (memcmp(sub.s1 + s1_c1_len, sub.s2, s1_c2_len) == 0)
-        && !(s1_c1_len == s1_c2_len && memcmp(sub.s1, sub.s1 + s1_c1_len, s1_c1_len) == 0));
+    int32_t s1_c1 = 0, s1_c2 = 0, s2_c1 = 0, s2_c2 = 0;
+    ssize_t s1_c1_len = utf8proc_iterate((const uint8_t *)sub.s1, -1, &s1_c1);
+    if (s1_c1_len < 0) return false;
+    ssize_t s1_c2_len = utf8proc_iterate((const uint8_t *)sub.s1 + s1_c1_len, -1, &s1_c2);
+    if (s1_c2_len < 0) return false;
+    ssize_t s2_c1_len = utf8proc_iterate((const uint8_t *)sub.s2, -1, &s2_c1);
+    if (s2_c1_len < 0) return false;
+    ssize_t s2_c2_len = utf8proc_iterate((const uint8_t *)sub.s2 + s2_c1_len, -1, &s2_c2);
+    if (s2_c2_len < 0) return false;
+    return ((HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c1, s2_c2))
+        && (HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c2, s2_c1))
+        && !(HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c1, s1_c2)));
 }
-
-static inline bool subproblem_is_transpose(string_subproblem_t sub) {
-    return (sub.m == 2 && sub.n == 2
-        && sub.s1[0] == sub.s2[1]
-        && sub.s1[1] == sub.s2[0]
-        && sub.s1[0] != sub.s1[1]);
-}
-
 
 #endif // HIRSCHBERG_H
 
@@ -153,7 +181,6 @@ typedef struct {
         HIRSCHBERG_TYPED(value_function_varargs_t) varargs;
     } function;
 } HIRSCHBERG_TYPED(value_function_generic_t);
-
 
 
 static bool HIRSCHBERG_TYPED(subproblems_core)(const char *s1, size_t m, const char *s2, size_t n, hirschberg_context_t context,
