@@ -128,7 +128,7 @@ void test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, siz
     int32_t prev_c2;
     for (size_t i = 1; i < m + 1; i++) {
         c1 = 0;
-        ssize_t c1_len;
+        utf8proc_utf8proc_ssize_t c1_len;
         if (!reverse) {
             c1_len = utf8proc_iterate(s1_ptr, -1, &c1);
         } else {
@@ -140,7 +140,7 @@ void test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, siz
         s2_consumed = 0;
         for (size_t j = 1; j < n + 1; j++) {
             c2 = 0;
-            ssize_t c2_len;
+            utf8proc_utf8proc_ssize_t c2_len;
             if (!reverse) {
                 c2_len = utf8proc_iterate(s2_ptr, -1, &c2);
             } else {
@@ -185,7 +185,7 @@ char *hirschberg_alignment_lcs(string_subproblem_array *result, size_t max_len) 
     char *alignment = malloc(max_len + 1);
     size_t idx = 0;
 
-    ssize_t c1_len, c2_len;
+    utf8proc_utf8proc_ssize_t c1_len, c2_len;
     int32_t c1, c2;
     const unsigned char *s1_ptr;
     const unsigned char *s2_ptr;

@@ -105,10 +105,10 @@ static inline bool subproblem_border_transpose_utf8(string_subproblem_t  sub, si
     int32_t left_ch = 0;
     size_t prev_utf8_len = utf8_prev(sub.s1, offset);
     size_t left_pos = offset - prev_utf8_len;
-    ssize_t left_len = utf8proc_iterate((const uint8_t *)sub.s1 + left_pos, -1, &left_ch);
+    utf8proc_ssize_t left_len = utf8proc_iterate((const uint8_t *)sub.s1 + left_pos, -1, &left_ch);
     size_t right_pos = offset;
     int32_t right_ch = 0;
-    ssize_t right_len = utf8proc_iterate((const uint8_t *)sub.s1 + offset, -1, &right_ch);
+    utf8proc_ssize_t right_len = utf8proc_iterate((const uint8_t *)sub.s1 + offset, -1, &right_ch);
     // If the characters are equal, then it's not a transpose and we can return early
     if (left_len == right_len && (HIRSCHBERG_UTF8_CHAR_EQUAL(left_ch, right_ch))) return false;
 
@@ -116,11 +116,11 @@ static inline bool subproblem_border_transpose_utf8(string_subproblem_t  sub, si
     int32_t prev_ch = 0;
 
     size_t prev_start = 0;
-    ssize_t prev_len = utf8proc_iterate((const uint8_t *)sub.s2, -1, &prev_ch);
+    utf8proc_ssize_t prev_len = utf8proc_iterate((const uint8_t *)sub.s2, -1, &prev_ch);
     if (prev_len < 0) return false;
     size_t start = prev_len;
     for (size_t j = 1; j < sub.n; j++) {
-        ssize_t cur_len = utf8proc_iterate((const uint8_t *)sub.s2 + start, -1, &ch);
+        utf8proc_ssize_t cur_len = utf8proc_iterate((const uint8_t *)sub.s2 + start, -1, &ch);
         if (cur_len < 0) return false;
 
         if (HIRSCHBERG_UTF8_CHAR_EQUAL(prev_ch, right_ch)
@@ -140,13 +140,13 @@ static inline bool subproblem_border_transpose_utf8(string_subproblem_t  sub, si
 static inline bool subproblem_is_transpose_utf8(string_subproblem_t sub) {
     if (sub.m != 2 || sub.n != 2) return false;
     int32_t s1_c1 = 0, s1_c2 = 0, s2_c1 = 0, s2_c2 = 0;
-    ssize_t s1_c1_len = utf8proc_iterate((const uint8_t *)sub.s1, -1, &s1_c1);
+    utf8proc_ssize_t s1_c1_len = utf8proc_iterate((const uint8_t *)sub.s1, -1, &s1_c1);
     if (s1_c1_len < 0) return false;
-    ssize_t s1_c2_len = utf8proc_iterate((const uint8_t *)sub.s1 + s1_c1_len, -1, &s1_c2);
+    utf8proc_ssize_t s1_c2_len = utf8proc_iterate((const uint8_t *)sub.s1 + s1_c1_len, -1, &s1_c2);
     if (s1_c2_len < 0) return false;
-    ssize_t s2_c1_len = utf8proc_iterate((const uint8_t *)sub.s2, -1, &s2_c1);
+    utf8proc_ssize_t s2_c1_len = utf8proc_iterate((const uint8_t *)sub.s2, -1, &s2_c1);
     if (s2_c1_len < 0) return false;
-    ssize_t s2_c2_len = utf8proc_iterate((const uint8_t *)sub.s2 + s2_c1_len, -1, &s2_c2);
+    utf8proc_ssize_t s2_c2_len = utf8proc_iterate((const uint8_t *)sub.s2 + s2_c1_len, -1, &s2_c2);
     if (s2_c2_len < 0) return false;
     return ((HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c1, s2_c2))
         && (HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c2, s2_c1))
