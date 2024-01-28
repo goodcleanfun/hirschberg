@@ -218,8 +218,26 @@ static bool HIRSCHBERG_TYPED(subproblems_core)(const char *s1, size_t m, const c
 
     string_subproblem_t sub;
     while (string_subproblem_array_pop(stack, &sub)) {
-        if (sub.m == 0 || sub.n == 0 || (sub.m == 1 && sub.n == 1)) {
+        if (sub.m == 1 && sub.n == 1) {
             string_subproblem_array_push(result, sub);
+            continue;
+        } else if (sub.m == 0 || sub.n == 0) {
+            size_t result_len = result->n;
+            if (result_len == 0) {
+                string_subproblem_array_push(result, sub);
+            } else {
+                size_t last_index = result_len - 1;
+                string_subproblem_t last = result->a[last_index];
+                if (last.m == 0 && sub.m == 0) {
+                    last.n += sub.n;
+                    result->a[last_index] = last;
+                } else if (last.n == 0 && sub.n == 0) {
+                    last.m += sub.m;
+                    result->a[last_index] = last;
+                } else {
+                    string_subproblem_array_push(result, sub);
+                }
+            }
             continue;
         } else if (allow_transpose && sub.m == 2 && sub.n == 2 && (
                     (utf8 && subproblem_is_transpose_utf8(sub))
@@ -272,7 +290,7 @@ static bool HIRSCHBERG_TYPED(subproblems_core)(const char *s1, size_t m, const c
 
         size_t sub_n = 0;
 
-        // 
+        // IMPROVES encodes whether to maximize similarity or minimize distance
         #ifdef HIRSCHBERG_SIMILARITY
         #define IMPROVES >
         #else
