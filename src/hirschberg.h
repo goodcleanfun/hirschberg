@@ -286,7 +286,11 @@ static bool HIRSCHBERG_TYPED(subproblems_core)(const char *s1, size_t m, const c
             return false;
         }
 
+        #ifdef HIRSCHBERG_SIMILARITY
         VALUE_TYPE opt_sum = (VALUE_TYPE) 0;
+        #else
+        VALUE_TYPE opt_sum = (VALUE_TYPE) n + m;
+        #endif
 
         size_t sub_n = 0;
 
