@@ -14,10 +14,13 @@
     },
     "src": [
       "src/hirschberg.h",
-      "src/double_costs.h",
-      "src/int32_costs.h",
-      "src/int64_costs.h",
-      "src/uint32_costs.h",
-      "src/uint64_costs.h"
+      "src/double_dist.h",
+      "src/double_sim.h",
+      "src/float_dist.h",
+      "src/float_sim.h",
+      "src/uint32_dist.h",
+      "src/uint32_sim.h",
+      "src/uint64_dist.h",
+      "src/uint64_sim.h"
     ]
   }
