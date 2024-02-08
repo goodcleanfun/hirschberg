@@ -286,19 +286,16 @@ static bool HIRSCHBERG_TYPED(subproblems_core)(const char *s1, size_t m, const c
             return false;
         }
 
-        #ifdef HIRSCHBERG_SIMILARITY
-        VALUE_TYPE opt_sum = (VALUE_TYPE) 0;
-        #else
-        VALUE_TYPE opt_sum = (VALUE_TYPE) n + m;
-        #endif
-
         size_t sub_n = 0;
 
         // IMPROVES encodes whether to maximize similarity or minimize distance
+        //
         #ifdef HIRSCHBERG_SIMILARITY
         #define IMPROVES >
+        VALUE_TYPE opt_sum = (VALUE_TYPE) 0;
         #else
         #define IMPROVES <
+        VALUE_TYPE opt_sum = (VALUE_TYPE) n + m;
         #endif
 
         for (size_t j = 0; j < sub.n + 1; j++) {
