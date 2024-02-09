@@ -163,6 +163,10 @@ static inline bool subproblem_is_transpose_utf8(string_subproblem_t sub) {
 #error "Must define VALUE_NAME"
 #endif
 
+#if !defined(HIRSCHBERG_SIMILARITY) && !defined(MAX_VALUE)
+#error "Must define MAX_VALUE for distance functions"
+#endif
+
 #define CONCAT3_(a, b, c) a ## b ## c
 #define CONCAT3(a, b, c) CONCAT3_(a, b, c)
 #define HIRSCHBERG_TYPED(name) CONCAT3(hirschberg_, VALUE_NAME, _##name)
@@ -289,13 +293,12 @@ static bool HIRSCHBERG_TYPED(subproblems_core)(const char *s1, size_t m, const c
         size_t sub_n = 0;
 
         // IMPROVES encodes whether to maximize similarity or minimize distance
-        //
         #ifdef HIRSCHBERG_SIMILARITY
         #define IMPROVES >
         VALUE_TYPE opt_sum = (VALUE_TYPE) 0;
         #else
         #define IMPROVES <
-        VALUE_TYPE opt_sum = (VALUE_TYPE) n + m;
+        VALUE_TYPE opt_sum = (VALUE_TYPE) MAX_VALUE;
         #endif
 
         for (size_t j = 0; j < sub.n + 1; j++) {
