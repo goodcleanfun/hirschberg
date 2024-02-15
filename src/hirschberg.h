@@ -11,11 +11,20 @@
 #include "utf8proc/utf8proc.h"
 
 typedef struct {
+    size_t x;
+    size_t m;
+    size_t y;
+    size_t n;
+} string_subproblem_t;
+
+typedef struct {
     const char *s1;
     size_t m;
     const char *s2;
     size_t n;
-} string_subproblem_t;
+} string_pair_input_t;
+
+#define NULL_SUBPROBLEM ((string_subproblem_t){ .x = 0, .m = 0, .y = 0, .n = 0})
 
 #define ARRAY_NAME string_subproblem_array
 #define ARRAY_TYPE string_subproblem_t
@@ -24,24 +33,27 @@ typedef struct {
 #undef ARRAY_TYPE
 
 typedef enum {
-    HIRSCHBERG_VALUE_STANDARD,
-    HIRSCHBERG_VALUE_OPTIONS,
-    HIRSCHBERG_VALUE_VARARGS
+    HIRSCHBERG_VALUE_FUNCTION_STANDARD = 0,
+    HIRSCHBERG_VALUE_FUNCTION_OPTIONS = 1,
+    HIRSCHBERG_VALUE_FUNCTION_VARARGS = 2
 } hirschberg_value_function_type_t;
 
 typedef struct {
     bool utf8;
     bool allow_transpose;
-    string_subproblem_array *stack;
-    string_subproblem_array *result;
-} hirschberg_context_t;
+    bool zero_out_memory;
+} hirschberg_options_t;
+
+static inline bool utf8_is_continuation(char c) {
+    return (c & 0xC0) == 0x80;
+}
 
 static inline size_t utf8_next(const char *str) {
     size_t i = 0;
     if (*str == '\0') return 0;
     do {
         i++;
-    } while ((str[i] & 0xC0) == 0x80);
+    } while (utf8_is_continuation(str[i]));
     return i;
 }
 
@@ -51,16 +63,8 @@ static inline size_t utf8_prev(const char *str, size_t start) {
     do {
         if (ptr <= str) break;
         ptr--; i++;
-    } while ((*ptr & 0xC0) == 0x80);
+    } while (utf8_is_continuation(*ptr));
     return i;
-}
-
-static inline size_t utf8_offset(const char *s, size_t n) {
-    size_t pos = 0;
-    for (size_t i = 0; i < n; i++) {
-        pos += utf8_next(s + pos);
-    }
-    return pos;
 }
 
 
@@ -72,24 +76,17 @@ static inline size_t utf8_offset(const char *s, size_t n) {
 #endif
 #endif
 
-static inline bool subproblem_border_transpose(string_subproblem_t sub, size_t split) {
+static inline bool subproblem_border_transpose(const char *s1, const char *s2, string_subproblem_t sub, size_t split) {
     if (sub.m == 0 || sub.n == 0 || split == 0) return false;
-    char split_left = sub.s1[split - 1];
-    char split_right = sub.s1[split];
+    char split_left = s1[split - 1];
+    char split_right = s1[split];
 
     for (size_t j = 1; j < sub.n; j++) {
-        if (HIRSCHBERG_CHAR_EQUAL(sub.s2[j - 1], split_right) && HIRSCHBERG_CHAR_EQUAL(sub.s2[j], split_left) && !(HIRSCHBERG_CHAR_EQUAL(sub.s2[j - 1], sub.s2[j]))) {
+        if (HIRSCHBERG_CHAR_EQUAL(s2[j - 1], split_right) && HIRSCHBERG_CHAR_EQUAL(s2[j], split_left) && !(HIRSCHBERG_CHAR_EQUAL(s2[j - 1], s2[j]))) {
             return true;
         }
     }
     return false;
-}
-
-static inline bool subproblem_is_transpose(string_subproblem_t sub) {
-    return sub.m == 2 && sub.n == 2
-        && HIRSCHBERG_CHAR_EQUAL(sub.s1[0], sub.s2[1])
-        && HIRSCHBERG_CHAR_EQUAL(sub.s1[1], sub.s2[0])
-        && !(HIRSCHBERG_CHAR_EQUAL(sub.s1[0], sub.s1[1]));
 }
 
 #ifndef HIRSCHBERG_UTF8_CHAR_EQUAL
@@ -100,15 +97,15 @@ static inline bool subproblem_is_transpose(string_subproblem_t sub) {
 #endif
 #endif
 
-static inline bool subproblem_border_transpose_utf8(string_subproblem_t  sub, size_t split, size_t offset) {
+static inline bool subproblem_border_transpose_utf8(const char *s1, const char *s2, string_subproblem_t sub, size_t split) {
     if (sub.m == 0 || sub.n == 0 || split == 0) return false;
     int32_t left_ch = 0;
-    size_t prev_utf8_len = utf8_prev(sub.s1, offset);
-    size_t left_pos = offset - prev_utf8_len;
-    utf8proc_ssize_t left_len = utf8proc_iterate((const uint8_t *)sub.s1 + left_pos, -1, &left_ch);
-    size_t right_pos = offset;
+    size_t prev_utf8_len = utf8_prev(s1, split);
+    size_t left_pos = split - prev_utf8_len;
+    utf8proc_ssize_t left_len = utf8proc_iterate((const uint8_t *)s1 + left_pos, -1, &left_ch);
+    size_t right_pos = split;
     int32_t right_ch = 0;
-    utf8proc_ssize_t right_len = utf8proc_iterate((const uint8_t *)sub.s1 + offset, -1, &right_ch);
+    utf8proc_ssize_t right_len = utf8proc_iterate((const uint8_t *)s1 + split, -1, &right_ch);
     // If the characters are equal, then it's not a transpose and we can return early
     if (left_len == right_len && (HIRSCHBERG_UTF8_CHAR_EQUAL(left_ch, right_ch))) return false;
 
@@ -116,11 +113,11 @@ static inline bool subproblem_border_transpose_utf8(string_subproblem_t  sub, si
     int32_t prev_ch = 0;
 
     size_t prev_start = 0;
-    utf8proc_ssize_t prev_len = utf8proc_iterate((const uint8_t *)sub.s2, -1, &prev_ch);
+    utf8proc_ssize_t prev_len = utf8proc_iterate((const uint8_t *)s2, -1, &prev_ch);
     if (prev_len < 0) return false;
-    size_t start = prev_len;
-    for (size_t j = 1; j < sub.n; j++) {
-        utf8proc_ssize_t cur_len = utf8proc_iterate((const uint8_t *)sub.s2 + start, -1, &ch);
+    size_t cur = prev_len;
+    while (cur < sub.n) {
+        utf8proc_ssize_t cur_len = utf8proc_iterate((const uint8_t *)s2 + cur, -1, &ch);
         if (cur_len < 0) return false;
 
         if (HIRSCHBERG_UTF8_CHAR_EQUAL(prev_ch, right_ch)
@@ -128,29 +125,13 @@ static inline bool subproblem_border_transpose_utf8(string_subproblem_t  sub, si
         ) {
             return true;
         }
-        prev_start = start;
+        prev_start = cur;
         prev_len = cur_len;
         prev_ch = ch;
-        start += cur_len;
+        cur += cur_len;
     }
 
     return false;
-}
-
-static inline bool subproblem_is_transpose_utf8(string_subproblem_t sub) {
-    if (sub.m != 2 || sub.n != 2) return false;
-    int32_t s1_c1 = 0, s1_c2 = 0, s2_c1 = 0, s2_c2 = 0;
-    utf8proc_ssize_t s1_c1_len = utf8proc_iterate((const uint8_t *)sub.s1, -1, &s1_c1);
-    if (s1_c1_len < 0) return false;
-    utf8proc_ssize_t s1_c2_len = utf8proc_iterate((const uint8_t *)sub.s1 + s1_c1_len, -1, &s1_c2);
-    if (s1_c2_len < 0) return false;
-    utf8proc_ssize_t s2_c1_len = utf8proc_iterate((const uint8_t *)sub.s2, -1, &s2_c1);
-    if (s2_c1_len < 0) return false;
-    utf8proc_ssize_t s2_c2_len = utf8proc_iterate((const uint8_t *)sub.s2 + s2_c1_len, -1, &s2_c2);
-    if (s2_c2_len < 0) return false;
-    return ((HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c1, s2_c2))
-        && (HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c2, s2_c1))
-        && !(HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c1, s1_c2)));
 }
 
 #endif // HIRSCHBERG_H
@@ -172,211 +153,320 @@ static inline bool subproblem_is_transpose_utf8(string_subproblem_t sub) {
 #define HIRSCHBERG_TYPED(name) CONCAT3(hirschberg_, VALUE_NAME, _##name)
 // e.g. HIRSCHBERG_TYPED(foo) for double would = hirschberg_double_foo
 
-
-typedef void (*HIRSCHBERG_TYPED(value_function_t))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values);
-typedef void (*HIRSCHBERG_TYPED(value_function_options_t))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, void *options);
-typedef void (*HIRSCHBERG_TYPED(value_function_varargs_t))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, va_list args);
+typedef void (*HIRSCHBERG_TYPED(function_standard))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, size_t values_size);
+typedef void (*HIRSCHBERG_TYPED(function_options))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, size_t values_size, void *options);
+typedef void (*HIRSCHBERG_TYPED(function_varargs))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, size_t values_size, size_t num_args, va_list args);
 
 typedef struct {
     hirschberg_value_function_type_t type;
     union {
-        HIRSCHBERG_TYPED(value_function_t) standard;
-        HIRSCHBERG_TYPED(value_function_options_t) options;
-        HIRSCHBERG_TYPED(value_function_varargs_t) varargs;
-    } function;
-} HIRSCHBERG_TYPED(value_function_generic_t);
+        HIRSCHBERG_TYPED(function_standard) standard;
+        HIRSCHBERG_TYPED(function_options) options;
+        HIRSCHBERG_TYPED(function_varargs) varargs;
+    } func;
+    void *options;
+    size_t num_args;
+    va_list args;
+} HIRSCHBERG_TYPED(function);
 
+typedef struct {
+    VALUE_TYPE *values;
+    size_t size;
+} HIRSCHBERG_TYPED(values);
 
-static bool HIRSCHBERG_TYPED(subproblems_core)(const char *s1, size_t m, const char *s2, size_t n, hirschberg_context_t context,
-                                               HIRSCHBERG_TYPED(value_function_generic_t) value_function,
-                                               VALUE_TYPE *values, VALUE_TYPE *rev_values, size_t values_len,
-                                               void *options, va_list args) {
-    if (m == 0 || n == 0) return false;
-    if (m < n) {
-        const char *tmp = s1;
-        s1 = s2;
-        s2 = tmp;
-        size_t tmp_n = m;
-        m = n;
-        n = tmp_n;
-    }
-    bool utf8 = context.utf8;
-    bool allow_transpose = context.allow_transpose;
-    string_subproblem_array *stack = context.stack;
-    string_subproblem_array *result = context.result;
-
-    if (stack->n > 0) {
-        string_subproblem_array_clear(stack);
-    }
-    if (result->n > 0) {
-        string_subproblem_array_clear(result);
-    }
-
-    string_subproblem_t prob = (string_subproblem_t) {
-        .s1 = s1,
-        .m = m,
-        .s2 = s2,
-        .n = n
-    };
-    string_subproblem_array_push(stack, prob);
-
+typedef struct {
+    string_pair_input_t input;
+    hirschberg_options_t options;
+    HIRSCHBERG_TYPED(values) *values;
+    HIRSCHBERG_TYPED(function) *values_function;
+    string_subproblem_array *stack;
     string_subproblem_t sub;
-    while (string_subproblem_array_pop(stack, &sub)) {
-        if (sub.m == 1 && sub.n == 1) {
-            string_subproblem_array_push(result, sub);
-            continue;
-        } else if (sub.m == 0 || sub.n == 0) {
-            size_t result_len = result->n;
-            if (result_len == 0) {
-                string_subproblem_array_push(result, sub);
-            } else {
-                size_t last_index = result_len - 1;
-                string_subproblem_t last = result->a[last_index];
-                if (last.m == 0 && sub.m == 0) {
-                    last.n += sub.n;
-                    result->a[last_index] = last;
-                } else if (last.n == 0 && sub.n == 0) {
-                    last.m += sub.m;
-                    result->a[last_index] = last;
-                } else {
-                    string_subproblem_array_push(result, sub);
-                }
-            }
-            continue;
-        } else if (allow_transpose && sub.m == 2 && sub.n == 2 && (
-                    (utf8 && subproblem_is_transpose_utf8(sub))
-                || (!utf8 && subproblem_is_transpose(sub)))
-        ) {
-            string_subproblem_array_push(result, sub);
-            continue;
-        }
+    bool is_result;
+} HIRSCHBERG_TYPED(iter);
 
-        size_t sub_m = floor((double)sub.m / 2.0);
-        size_t sub_m_offset = sub_m;
-        if (utf8) {
-            sub_m_offset = utf8_offset(sub.s1, sub_m);
-        }
-        if (allow_transpose && sub.m > 1 && (
-                    (utf8 && subproblem_border_transpose_utf8(sub, sub_m, sub_m_offset))
-                || (!utf8 && subproblem_border_transpose(sub, sub_m))
-        )) {
-            sub_m++;
-            if (utf8) {
-                sub_m_offset += utf8_next(sub.s1 + sub_m_offset);
-            } else {
-                sub_m_offset++;
-            }
-        }
-
-        memset(values, 0, sizeof(VALUE_TYPE) * values_len);
-        memset(rev_values, 0, sizeof(VALUE_TYPE) * values_len);
-
-        // reverse flag is false on the forward pass and true on the reverse pass
-        static const bool FORWARD = false;
-        static const bool REVERSE = true;
-        if (value_function.type == HIRSCHBERG_VALUE_STANDARD) {
-            value_function.function.standard(sub.s1, sub_m, sub.s2, sub.n, FORWARD, values);
-            value_function.function.standard(sub.s1 + sub_m_offset, sub.m - sub_m,
-                                            sub.s2, sub.n, REVERSE, rev_values);
-        } else if (value_function.type == HIRSCHBERG_VALUE_OPTIONS) {
-            value_function.function.options(sub.s1, sub_m, sub.s2, sub.n, FORWARD, values, options);
-            value_function.function.options(sub.s1 + sub_m_offset, sub.m - sub_m,
-                                            sub.s2, sub.n, REVERSE, rev_values, options);
-        } else if (value_function.type == HIRSCHBERG_VALUE_VARARGS) {
-            value_function.function.varargs(sub.s1, sub_m, sub.s2, sub.n, FORWARD, values, args);
-            value_function.function.varargs(sub.s1 + sub_m_offset, sub.m - sub_m,
-                                            sub.s2, sub.n, REVERSE, rev_values, args);
-        } else {
-            return false;
-        }
-
-        size_t sub_n = 0;
-
-        // IMPROVES encodes whether to maximize similarity or minimize distance
-        #ifdef HIRSCHBERG_SIMILARITY
-        #define IMPROVES >
-        VALUE_TYPE opt_sum = (VALUE_TYPE) 0;
-        #else
-        #define IMPROVES <
-        VALUE_TYPE opt_sum = (VALUE_TYPE) MAX_VALUE;
-        #endif
-
-        for (size_t j = 0; j < sub.n + 1; j++) {
-            values[j] += rev_values[sub.n - j];
-
-            if (values[j] IMPROVES opt_sum || (sub_n == 0 && j > 0 && values[j] == opt_sum)) {
-                sub_n = j;
-                opt_sum = values[j];
-            }
-        }
-
-        if ((sub_n == 0 && sub_m == 0) || (sub_n == sub.n && sub_m == sub.m)){
-            sub_m = 1;
-            sub_n = 1;
-        }
-        size_t sub_n_offset = sub_n;
-        if (utf8) {
-            sub_n_offset = utf8_offset(sub.s2, sub_n);
-        }
-
-        string_subproblem_t left_sub = (string_subproblem_t) {
-            .s1 = sub.s1,
-            .m = sub_m,
-            .s2 = sub.s2,
-            .n = sub_n
-        };
-        string_subproblem_t right_sub = (string_subproblem_t) {
-            .s1 = sub.s1 + sub_m_offset,
-            .m = sub.m - sub_m,
-            .s2 = sub.s2 + sub_n_offset,
-            .n = sub.n - sub_n
-        };
-        string_subproblem_array_push(stack, right_sub);
-        string_subproblem_array_push(stack, left_sub);
+HIRSCHBERG_TYPED(values) *HIRSCHBERG_TYPED(values_new)(size_t size) {
+    HIRSCHBERG_TYPED(values) *self = malloc(sizeof(HIRSCHBERG_TYPED(values)));
+    if (self == NULL) return NULL;
+    VALUE_TYPE *values = malloc(sizeof(VALUE_TYPE) * 2 * size);
+    if (values == NULL) {
+        free(self);
+        return NULL;
     }
+    self->values = values;
+    self->size = size;
+    return self;
+}
+
+static bool HIRSCHBERG_TYPED(values_resize)(HIRSCHBERG_TYPED(values) *self, size_t size) {
+    if (self == NULL) return false;
+    if (size == self->size) return true;
+    VALUE_TYPE *new_values = realloc(self->values, sizeof(VALUE_TYPE) * 2 * size);
+    if (new_values == NULL) return false;
+    self->values = new_values;
+    self->size = size;
     return true;
 }
 
+static inline VALUE_TYPE *HIRSCHBERG_TYPED(forward_values)(HIRSCHBERG_TYPED(values) *self) {
+    if (self == NULL || self->values == NULL) return NULL;
+    return self->values;
+}
 
-bool HIRSCHBERG_TYPED(subproblems)(const char *s1, size_t m, const char *s2, size_t n,
-                                   hirschberg_context_t context, HIRSCHBERG_TYPED(value_function_t) value_function,
-                                   VALUE_TYPE *values, VALUE_TYPE *rev_values, size_t values_len) {
-    return HIRSCHBERG_TYPED(subproblems_core)(s1, m, s2, n, context,
-                            (HIRSCHBERG_TYPED(value_function_generic_t)){
-                                .type = HIRSCHBERG_VALUE_STANDARD,
-                                .function = {
-                                    .standard = value_function
-                                }
-                            }, values, rev_values, values_len, NULL, NULL);
+static inline VALUE_TYPE *HIRSCHBERG_TYPED(reverse_values)(HIRSCHBERG_TYPED(values) *self) {
+    if (self == NULL || self->values == NULL) return NULL;
+    return self->values + self->size;
+}
+
+static inline void HIRSCHBERG_TYPED(zero_values)(HIRSCHBERG_TYPED(values) *self) {
+    if (self == NULL || self->values == NULL) return;
+    memset(self->values, 0, sizeof(VALUE_TYPE) * 2 * self->size);
+}
+
+static inline void HIRSCHBERG_TYPED(values_destroy)(HIRSCHBERG_TYPED(values) *self) {
+    if (self == NULL) return;
+    free(self->values);
+    free(self);
+}
+
+static HIRSCHBERG_TYPED(function) *HIRSCHBERG_TYPED(function_new)(HIRSCHBERG_TYPED(function_standard) standard_func) {
+    HIRSCHBERG_TYPED(function) *function = malloc(sizeof(HIRSCHBERG_TYPED(function)));
+    if (function == NULL) return NULL;
+    function->type = HIRSCHBERG_VALUE_FUNCTION_STANDARD;
+    function->func.standard = standard_func;
+    return function;
+}
+
+static HIRSCHBERG_TYPED(function) *HIRSCHBERG_TYPED(function_new_options)(HIRSCHBERG_TYPED(function_options) options_func, void *options) {
+    HIRSCHBERG_TYPED(function) *function = malloc(sizeof(HIRSCHBERG_TYPED(function)));
+    if (function == NULL) return NULL;
+    function->type = HIRSCHBERG_VALUE_FUNCTION_OPTIONS;
+    function->func.options = options_func;
+    function->options = options;
+    return function;
+}
+
+static HIRSCHBERG_TYPED(function) *HIRSCHBERG_TYPED(function_new_varargs)(HIRSCHBERG_TYPED(function_varargs) varargs_func, size_t num_args, ...) {
+    HIRSCHBERG_TYPED(function) *function = malloc(sizeof(HIRSCHBERG_TYPED(function)));
+    if (function == NULL) return NULL;
+    function->type = HIRSCHBERG_VALUE_FUNCTION_VARARGS;
+    va_list args;
+    va_start(args, num_args);
+    function->func.varargs = varargs_func;
+    function->num_args = num_args;
+    va_copy(function->args, args);
+    va_end(args);
+    return function;
+}
+
+HIRSCHBERG_TYPED(iter) *HIRSCHBERG_TYPED(iter_new)(string_pair_input_t input,
+                                                   hirschberg_options_t options,
+                                                   HIRSCHBERG_TYPED(values) *values,
+                                                   HIRSCHBERG_TYPED(function) *values_function) {
+    if (values == NULL || values_function == NULL) return NULL;
+    HIRSCHBERG_TYPED(iter) *iter = malloc(sizeof(HIRSCHBERG_TYPED(iter)));
+    if (iter == NULL) return NULL;
+    string_subproblem_array *stack = string_subproblem_array_new();
+    if (stack == NULL) {
+        free(iter);
+        return NULL;
+    }
+
+    iter->input = input;
+    iter->options = options;
+    iter->values = values;
+    iter->values_function = values_function;
+    iter->stack = stack;
+    iter->sub = NULL_SUBPROBLEM;
+    iter->is_result = false;
+
+    string_subproblem_array_push(iter->stack, (string_subproblem_t) {
+        .x = 0,
+        .m = input.m,
+        .y = 0,
+        .n = input.n
+    });
+    return iter;
 }
 
 
-bool HIRSCHBERG_TYPED(subproblems_options)(const char *s1, size_t m, const char *s2, size_t n,
-                                           hirschberg_context_t context, HIRSCHBERG_TYPED(value_function_options_t) value_function,
-                                           VALUE_TYPE *values, VALUE_TYPE *rev_values, size_t values_len, void *options) {
-    return HIRSCHBERG_TYPED(subproblems_core)(s1, m, s2, n, context,
-                            (HIRSCHBERG_TYPED(value_function_generic_t)){
-                                .type = HIRSCHBERG_VALUE_OPTIONS,
-                                .function = {
-                                    .options = value_function
-                                }
-                            }, values, rev_values, values_len, options, NULL);
+static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
+    if (iter == NULL || iter->stack == NULL || iter->values == NULL || iter->values_function == NULL) return false;
+    string_pair_input_t input = iter->input;
+    if (input.m == 0 || input.n == 0) return false;
+
+    hirschberg_options_t options = iter->options;
+    bool utf8 = options.utf8;
+    bool allow_transpose = options.allow_transpose;
+    string_subproblem_array *stack = iter->stack;
+
+    if (!string_subproblem_array_pop(stack, &iter->sub)) return false;
+    string_subproblem_t sub = iter->sub;
+
+    const char *s1 = input.s1 + sub.x;
+    const char *s2 = input.s2 + sub.y;
+    size_t m = sub.m;
+    size_t n = sub.n;
+
+    if (m > 0 && n > 0) {
+        if (utf8) {
+            int32_t s1_c1 = 0, s1_c2 = 0, s2_c1 = 0, s2_c2 = 0;
+            utf8proc_ssize_t s1_c1_len = utf8proc_iterate((const uint8_t *)s1, -1, &s1_c1);
+            utf8proc_ssize_t s2_c1_len = utf8proc_iterate((const uint8_t *)s2, -1, &s2_c1);
+            if (s1_c1_len == m && s2_c1_len == n) {
+                iter->is_result = true;
+                return true;
+            }
+            utf8proc_ssize_t s1_c2_len = utf8proc_iterate((const uint8_t *)s1 + s1_c1_len, -1, &s1_c2);
+            utf8proc_ssize_t s2_c2_len = utf8proc_iterate((const uint8_t *)s2 + s2_c1_len, -1, &s2_c2);
+            if (s1_c1_len + s1_c2_len == m && s2_c1_len + s2_c2_len == n
+                && HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c1, s2_c2)
+                && HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c2, s2_c1)
+                && !(HIRSCHBERG_UTF8_CHAR_EQUAL(s1_c1, s1_c2))
+            ) {
+                iter->is_result = true;
+                return true;
+            }
+        } else {
+            if (m == 1 && n == 1) {
+                iter->is_result = true;
+                return true;
+            } else if (m == 2 && n == 2 && HIRSCHBERG_CHAR_EQUAL(s1[0], s2[1])
+                        && HIRSCHBERG_CHAR_EQUAL(s1[1], s2[0])
+                        && !(HIRSCHBERG_CHAR_EQUAL(s1[0], s1[1]))
+            ) {
+                iter->is_result = true;
+                return true;
+            }
+        }
+    } else if (m == 0 || n == 0) {
+        iter->is_result = true;
+        return true;
+    }
+
+    iter->is_result = false;
+
+    size_t sub_m = floor((double)m / 2.0);
+    if (utf8 && utf8_is_continuation(s1[sub_m])) {
+        sub_m -= utf8_prev(s1, sub_m);
+    }
+    if (allow_transpose) {
+        if (utf8 && subproblem_border_transpose_utf8(s1, s2, sub, sub_m)) {
+            sub_m += utf8_next(s1 + sub_m);
+        } else if (!utf8 && m > 1 && subproblem_border_transpose(s1, s2, sub, sub_m)) {
+            sub_m++;
+        }
+    }
+
+    if (options.zero_out_memory) {
+        HIRSCHBERG_TYPED(zero_values)(iter->values);
+    }
+
+    VALUE_TYPE *forward_values = HIRSCHBERG_TYPED(forward_values)(iter->values);
+    VALUE_TYPE *reverse_values = HIRSCHBERG_TYPED(reverse_values)(iter->values);
+    size_t values_len = iter->values->size;
+
+    HIRSCHBERG_TYPED(function) *values_function = iter->values_function;
+
+    // reverse flag is false on the forward pass and true on the reverse pass
+    static const bool FORWARD = false;
+    static const bool REVERSE = true;
+    if (values_function->type == HIRSCHBERG_VALUE_FUNCTION_STANDARD) {
+        values_function->func.standard(s1, sub_m, s2, n, FORWARD, forward_values, values_len);
+        values_function->func.standard(s1 + sub_m, m - sub_m,
+                                       s2, n, REVERSE, reverse_values, values_len);
+    } else if (values_function->type == HIRSCHBERG_VALUE_FUNCTION_OPTIONS) {
+        values_function->func.options(s1, sub_m, s2, n, FORWARD, forward_values, values_len, values_function->options);
+        values_function->func.options(s1 + sub_m, m - sub_m,
+                                      s2, n, REVERSE, reverse_values, values_len, values_function->options);
+    } else if (values_function->type == HIRSCHBERG_VALUE_FUNCTION_VARARGS) {
+        values_function->func.varargs(s1, sub_m, s2, n, FORWARD, forward_values, values_len, values_function->num_args, values_function->args);
+        values_function->func.varargs(s1 + sub_m, m - sub_m,
+                                      s2, n, REVERSE, reverse_values, values_len, values_function->num_args, values_function->args);
+    } else {
+        return false;
+    }
+
+    size_t sub_n = 0;
+
+    // IMPROVES encodes whether to maximize similarity or minimize distance
+    #ifdef HIRSCHBERG_SIMILARITY
+    #define IMPROVES >
+    VALUE_TYPE opt_sum = (VALUE_TYPE) 0;
+    #else
+    #define IMPROVES <
+    VALUE_TYPE opt_sum = (VALUE_TYPE) MAX_VALUE;
+    #endif
+
+    #ifndef HIRSCHBERG_VALUE_EQUALS
+    #define HIRSCHBERG_VALUE_EQUALS_DEFINED
+    #define HIRSCHBERG_VALUE_EQUALS(a, b) ((a) == (b))
+    #endif
+
+    size_t j = 0;
+    size_t j_len = 0;
+    const char *s2_ptr = s2;
+    size_t s2_consumed = 0;
+
+    while (s2_consumed <= n) {
+        if (utf8) {
+            j_len = utf8_next(s2_ptr);
+        } else {
+            j_len = 1;
+        }
+
+        forward_values[j] += reverse_values[n - j];
+        if (forward_values[j] IMPROVES opt_sum || (sub_n == 0 && HIRSCHBERG_VALUE_EQUALS(forward_values[j], opt_sum))) {
+            sub_n = s2_consumed;
+            opt_sum = forward_values[j];
+        }
+
+        j++;
+        if (j_len == 0) break;
+        s2_ptr += j_len;
+        s2_consumed += j_len;
+    }
+
+    if ((sub_n == 0 && sub_m == 0) || (sub_n == n && sub_m == m)){
+        if (!utf8) {
+            sub_m = 1;
+            sub_n = 1;
+        } else {
+            sub_m = utf8_next(s1);
+            sub_n = utf8_next(s2);
+        }
+    }
+
+    string_subproblem_t left_sub = (string_subproblem_t) {
+        .x = sub.x,
+        .m = sub_m,
+        .y = sub.y,
+        .n = sub_n
+    };
+    string_subproblem_t right_sub = (string_subproblem_t) {
+        .x = sub.x + sub_m,
+        .m = sub.m - sub_m,
+        .y = sub.y + sub_n,
+        .n = sub.n - sub_n
+    };
+    string_subproblem_array_push(stack, right_sub);
+    string_subproblem_array_push(stack, left_sub);
+    return true;
 }
 
-bool HIRSCHBERG_TYPED(subproblems_varargs)(const char *s1, size_t m, const char *s2, size_t n,
-                                           hirschberg_context_t context, HIRSCHBERG_TYPED(value_function_varargs_t) value_function,
-                                           VALUE_TYPE *values, VALUE_TYPE *rev_values, size_t values_len, va_list args) {
-    bool result = HIRSCHBERG_TYPED(subproblems_core)(s1, m, s2, n, context,
-                            (HIRSCHBERG_TYPED(value_function_generic_t)){
-                                .type = HIRSCHBERG_VALUE_VARARGS,
-                                .function = {
-                                    .varargs = value_function
-                                }
-                            }, values, rev_values, values_len, NULL, args);
-    return result;
+static inline void HIRSCHBERG_TYPED(iter_destroy)(HIRSCHBERG_TYPED(iter) *iter) {
+    if (iter == NULL) return;
+    if (iter->stack != NULL) string_subproblem_array_destroy(iter->stack);
+    if (iter->values != NULL) HIRSCHBERG_TYPED(values_destroy)(iter->values);
+    if (iter->values_function != NULL) free(iter->values_function);
+    free(iter);
 }
+
 
 #undef CONCAT3_
 #undef CONCAT3
 #undef HIRSCHBERG_TYPED
 #undef IMPROVES
+#ifdef HIRSCHBERG_VALUE_EQUALS_DEFINED
+#undef HIRSCHBERG_VALUE_EQUALS
+#undef HIRSCHBERG_VALUE_EQUALS_DEFINED
+#endif
