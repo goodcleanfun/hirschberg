@@ -76,10 +76,13 @@ lcs_test_t test_data_lcs[] = {
     }
 };
 
-void test_hirschberg_lcs_cost(const char *s1, size_t m, const char *s2, size_t n, bool reverse, uint64_t *costs, size_t costs_size) {
+size_t test_hirschberg_lcs_cost(const char *s1, size_t m, const char *s2, size_t n, bool reverse, uint64_t *costs, size_t costs_size) {
+    uint64_t diag = 0;
+    uint64_t up = 0;
+    uint64_t left = 0;
     uint64_t best_cost = m + n;
     uint64_t *cur_lcs = costs;
-    uint64_t *prev_lcs = costs + (costs_size / 2);
+    uint64_t *prev_lcs = costs + n + 1;
     for (size_t i = 1; i < m + 1; i++) {
         char c1 = !reverse ? tolower(s1[i - 1]) : tolower(s1[m - i]);
         for (size_t j = 1; j < n + 1; j++) {
@@ -100,10 +103,11 @@ void test_hirschberg_lcs_cost(const char *s1, size_t m, const char *s2, size_t n
             prev_lcs[j] = cur_lcs[j];
         }
     }
+    return n + 1;
 }
 
 
-void test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, size_t n, bool reverse, uint64_t *costs, size_t costs_size) {
+size_t test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, size_t n, bool reverse, uint64_t *costs, size_t costs_size) {
     uint64_t best_cost = m + n;
     uint64_t *cur_lcs = costs;
     uint64_t *prev_lcs = costs + (costs_size / 2);
@@ -116,6 +120,7 @@ void test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, siz
     int32_t prev_c1;
     int32_t prev_c2;
     size_t i = 1;
+    size_t used = 0;
     while (s1_consumed < m) {
         c1 = 0;
         ssize_t c1_len;
@@ -157,8 +162,9 @@ void test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, siz
             prev_c2 = c2;
             j++;
         }
-        for (size_t j = 0; j < n + 1; j++) {
-            prev_lcs[j] = cur_lcs[j];
+        used = j;
+        for (size_t k = 0; k < used; k++) {
+            prev_lcs[k] = cur_lcs[k];
         }
         if (!reverse) {
             s1_ptr += c1_len;
@@ -167,7 +173,10 @@ void test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, siz
         prev_c1 = c1;
         i++;
     }
+
+    return used;
 }
+
 
 char *hirschberg_alignment_lcs(hirschberg_uint64_sim_iter *iter, size_t max_len) {
     char *alignment = malloc(sizeof(char) * (max_len + 1));
