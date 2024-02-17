@@ -155,9 +155,9 @@ static inline bool subproblem_border_transpose_utf8(const char *s1, const char *
 #define HIRSCHBERG_TYPED(name) CONCAT3(hirschberg_, VALUE_NAME, _##name)
 // e.g. HIRSCHBERG_TYPED(foo) for double would = hirschberg_double_foo
 
-typedef void (*HIRSCHBERG_TYPED(function_standard))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, size_t values_size);
-typedef void (*HIRSCHBERG_TYPED(function_options))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, size_t values_size, void *options);
-typedef void (*HIRSCHBERG_TYPED(function_varargs))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, size_t values_size, size_t num_args, va_list args);
+typedef size_t (*HIRSCHBERG_TYPED(function_standard))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, size_t values_size);
+typedef size_t (*HIRSCHBERG_TYPED(function_options))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, size_t values_size, void *options);
+typedef size_t (*HIRSCHBERG_TYPED(function_varargs))(const char *s1, size_t m, const char *s2, size_t n, bool reverse, VALUE_TYPE *values, size_t values_size, size_t num_args, va_list args);
 
 typedef struct {
     hirschberg_value_function_type_t type;
@@ -378,18 +378,20 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
     // reverse flag is false on the forward pass and true on the reverse pass
     static const bool FORWARD = false;
     static const bool REVERSE = true;
+    size_t size_used = 0;
+    size_t rev_size_used = 0;
     if (values_function->type == VALUE_FUNCTION_STANDARD) {
-        values_function->func.standard(s1, sub_m, s2, n, FORWARD, forward_values, values_len);
-        values_function->func.standard(s1 + sub_m, m - sub_m,
-                                       s2, n, REVERSE, reverse_values, values_len);
+        size_used = values_function->func.standard(s1, sub_m, s2, n, FORWARD, forward_values, values_len);
+        rev_size_used = values_function->func.standard(s1 + sub_m, m - sub_m,
+                                                       s2, n, REVERSE, reverse_values, values_len);
     } else if (values_function->type == VALUE_FUNCTION_OPTIONS) {
-        values_function->func.options(s1, sub_m, s2, n, FORWARD, forward_values, values_len, values_function->options);
-        values_function->func.options(s1 + sub_m, m - sub_m,
-                                      s2, n, REVERSE, reverse_values, values_len, values_function->options);
+        size_used = values_function->func.options(s1, sub_m, s2, n, FORWARD, forward_values, values_len, values_function->options);
+        rev_size_used = values_function->func.options(s1 + sub_m, m - sub_m,
+                                                  s2, n, REVERSE, reverse_values, values_len, values_function->options);
     } else if (values_function->type == VALUE_FUNCTION_VARARGS) {
-        values_function->func.varargs(s1, sub_m, s2, n, FORWARD, forward_values, values_len, values_function->num_args, values_function->args);
-        values_function->func.varargs(s1 + sub_m, m - sub_m,
-                                      s2, n, REVERSE, reverse_values, values_len, values_function->num_args, values_function->args);
+        size_used = values_function->func.varargs(s1, sub_m, s2, n, FORWARD, forward_values, values_len, values_function->num_args, values_function->args);
+        rev_size_used = values_function->func.varargs(s1 + sub_m, m - sub_m,
+                                                  s2, n, REVERSE, reverse_values, values_len, values_function->num_args, values_function->args);
     } else {
         return false;
     }
@@ -413,39 +415,22 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
     #endif
 
     if (utf8) {
-        // We don't know if values_len is equivalent to the utf-8 length
-        // so iterate through the short string to find the length of the subproblem
         const char *s2_ptr = s2;
         size_t s2_consumed = 0;
-        size_t c_len = 0;
-        size_t num_chars = 0;
-        while (s2_consumed < n) {
-            c_len = utf8_next(s2_ptr);
-            num_chars++;
-            s2_consumed += c_len;
-            s2_ptr += c_len;
-        }
-        s2_consumed = 0;
-        s2_ptr = s2;
-        size_t j = 0;
-
-        while (s2_consumed <= n) {
-            c_len = utf8_next(s2_ptr);
-            forward_values[j] += reverse_values[num_chars - j];
+        for (size_t j = 0; j < size_used; j++) {
+            size_t c_len = utf8_next(s2_ptr);
+            forward_values[j] += reverse_values[size_used - j - 1];
             if (forward_values[j] IMPROVES opt_sum || (!opt_sum_improved && VALUE_EQUALS(forward_values[j], opt_sum))) {
                 opt_sum_improved = !single_char_one_side; // handles m = 1 and n = 1
                 sub_n = s2_consumed;
                 opt_sum = forward_values[j];
             }
-
-            if (s2_consumed == n) break;
-            j++;
             s2_consumed += c_len;
             s2_ptr += c_len;
         }
     } else {
-        for (size_t j = 0; j <= n; j++) {
-            forward_values[j] += reverse_values[n - j];
+        for (size_t j = 0; j < size_used; j++) {
+            forward_values[j] += reverse_values[size_used - j - 1];
             if (forward_values[j] IMPROVES opt_sum || (!opt_sum_improved && VALUE_EQUALS(forward_values[j], opt_sum))) {
                 opt_sum_improved = !single_char_one_side; // handles m = 1 and n = 1
                 sub_n = j;
