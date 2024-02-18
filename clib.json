@@ -1,6 +1,6 @@
 {
     "name": "hirschberg",
-    "version": "0.5.1",
+    "version": "0.6.0",
     "repo": "goodcleanfun/hirschberg",
     "description": "Hirschberg algorithm for recovering a sequence of edit/alignment operations using only linear space",
     "keywords": ["hirschberg", "alignment", "edit", "sequence"],
