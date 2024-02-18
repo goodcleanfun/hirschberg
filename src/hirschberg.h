@@ -41,7 +41,7 @@ typedef enum {
 typedef struct {
     bool utf8;
     bool allow_transpose;
-    bool zero_out_memory;
+    bool init_values_zero;
 } hirschberg_options_t;
 
 static inline bool utf8_is_continuation(char c) {
@@ -169,25 +169,25 @@ typedef struct {
     void *options;
     size_t num_args;
     va_list args;
-} HIRSCHBERG_TYPED(function);
+} HIRSCHBERG_TYPED(function_t);
 
 typedef struct {
     VALUE_TYPE *values;
     size_t size;
-} HIRSCHBERG_TYPED(values);
+} HIRSCHBERG_TYPED(values_t);
 
 typedef struct {
     string_pair_input_t input;
     hirschberg_options_t options;
-    HIRSCHBERG_TYPED(values) *values;
-    HIRSCHBERG_TYPED(function) *values_function;
+    HIRSCHBERG_TYPED(values_t) *values;
+    HIRSCHBERG_TYPED(function_t) *values_function;
     string_subproblem_array *stack;
     string_subproblem_t sub;
     bool is_result;
 } HIRSCHBERG_TYPED(iter);
 
-HIRSCHBERG_TYPED(values) *HIRSCHBERG_TYPED(values_new)(size_t size) {
-    HIRSCHBERG_TYPED(values) *self = malloc(sizeof(HIRSCHBERG_TYPED(values)));
+HIRSCHBERG_TYPED(values_t) *HIRSCHBERG_TYPED(values_new)(size_t size) {
+    HIRSCHBERG_TYPED(values_t) *self = malloc(sizeof(HIRSCHBERG_TYPED(values_t)));
     if (self == NULL) return NULL;
     VALUE_TYPE *values = malloc(sizeof(VALUE_TYPE) * 2 * size);
     if (values == NULL) {
@@ -199,7 +199,7 @@ HIRSCHBERG_TYPED(values) *HIRSCHBERG_TYPED(values_new)(size_t size) {
     return self;
 }
 
-static bool HIRSCHBERG_TYPED(values_resize)(HIRSCHBERG_TYPED(values) *self, size_t size) {
+static bool HIRSCHBERG_TYPED(values_resize)(HIRSCHBERG_TYPED(values_t) *self, size_t size) {
     if (self == NULL) return false;
     if (size == self->size) return true;
     VALUE_TYPE *new_values = realloc(self->values, sizeof(VALUE_TYPE) * 2 * size);
@@ -209,37 +209,37 @@ static bool HIRSCHBERG_TYPED(values_resize)(HIRSCHBERG_TYPED(values) *self, size
     return true;
 }
 
-static inline VALUE_TYPE *HIRSCHBERG_TYPED(forward_values)(HIRSCHBERG_TYPED(values) *self) {
+static inline VALUE_TYPE *HIRSCHBERG_TYPED(forward_values)(HIRSCHBERG_TYPED(values_t) *self) {
     if (self == NULL || self->values == NULL) return NULL;
     return self->values;
 }
 
-static inline VALUE_TYPE *HIRSCHBERG_TYPED(reverse_values)(HIRSCHBERG_TYPED(values) *self) {
+static inline VALUE_TYPE *HIRSCHBERG_TYPED(reverse_values)(HIRSCHBERG_TYPED(values_t) *self) {
     if (self == NULL || self->values == NULL) return NULL;
     return self->values + self->size;
 }
 
-static inline void HIRSCHBERG_TYPED(zero_values)(HIRSCHBERG_TYPED(values) *self) {
+static inline void HIRSCHBERG_TYPED(zero_values)(HIRSCHBERG_TYPED(values_t) *self) {
     if (self == NULL || self->values == NULL) return;
     memset(self->values, 0, sizeof(VALUE_TYPE) * 2 * self->size);
 }
 
-static inline void HIRSCHBERG_TYPED(values_destroy)(HIRSCHBERG_TYPED(values) *self) {
+static inline void HIRSCHBERG_TYPED(values_destroy)(HIRSCHBERG_TYPED(values_t) *self) {
     if (self == NULL) return;
     free(self->values);
     free(self);
 }
 
-static HIRSCHBERG_TYPED(function) *HIRSCHBERG_TYPED(function_new)(HIRSCHBERG_TYPED(function_standard) standard_func) {
-    HIRSCHBERG_TYPED(function) *function = malloc(sizeof(HIRSCHBERG_TYPED(function)));
+static HIRSCHBERG_TYPED(function_t) *HIRSCHBERG_TYPED(function_new)(HIRSCHBERG_TYPED(function_standard) standard_func) {
+    HIRSCHBERG_TYPED(function_t) *function = malloc(sizeof(HIRSCHBERG_TYPED(function_t)));
     if (function == NULL) return NULL;
     function->type = VALUE_FUNCTION_STANDARD;
     function->func.standard = standard_func;
     return function;
 }
 
-static HIRSCHBERG_TYPED(function) *HIRSCHBERG_TYPED(function_new_options)(HIRSCHBERG_TYPED(function_options) options_func, void *options) {
-    HIRSCHBERG_TYPED(function) *function = malloc(sizeof(HIRSCHBERG_TYPED(function)));
+static HIRSCHBERG_TYPED(function_t) *HIRSCHBERG_TYPED(function_new_options)(HIRSCHBERG_TYPED(function_options) options_func, void *options) {
+    HIRSCHBERG_TYPED(function_t) *function = malloc(sizeof(HIRSCHBERG_TYPED(function_t)));
     if (function == NULL) return NULL;
     function->type = VALUE_FUNCTION_OPTIONS;
     function->func.options = options_func;
@@ -247,8 +247,8 @@ static HIRSCHBERG_TYPED(function) *HIRSCHBERG_TYPED(function_new_options)(HIRSCH
     return function;
 }
 
-static HIRSCHBERG_TYPED(function) *HIRSCHBERG_TYPED(function_new_varargs)(HIRSCHBERG_TYPED(function_varargs) varargs_func, size_t num_args, ...) {
-    HIRSCHBERG_TYPED(function) *function = malloc(sizeof(HIRSCHBERG_TYPED(function)));
+static HIRSCHBERG_TYPED(function_t) *HIRSCHBERG_TYPED(function_new_varargs)(HIRSCHBERG_TYPED(function_varargs) varargs_func, size_t num_args, ...) {
+    HIRSCHBERG_TYPED(function_t) *function = malloc(sizeof(HIRSCHBERG_TYPED(function_t)));
     if (function == NULL) return NULL;
     function->type = VALUE_FUNCTION_VARARGS;
     va_list args;
@@ -262,8 +262,8 @@ static HIRSCHBERG_TYPED(function) *HIRSCHBERG_TYPED(function_new_varargs)(HIRSCH
 
 HIRSCHBERG_TYPED(iter) *HIRSCHBERG_TYPED(iter_new)(string_pair_input_t input,
                                                    hirschberg_options_t options,
-                                                   HIRSCHBERG_TYPED(values) *values,
-                                                   HIRSCHBERG_TYPED(function) *values_function) {
+                                                   HIRSCHBERG_TYPED(values_t) *values,
+                                                   HIRSCHBERG_TYPED(function_t) *values_function) {
     if (values == NULL || values_function == NULL) return NULL;
     HIRSCHBERG_TYPED(iter) *iter = malloc(sizeof(HIRSCHBERG_TYPED(iter)));
     if (iter == NULL) return NULL;
@@ -370,7 +370,7 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
         }
     }
 
-    if (options.zero_out_memory) {
+    if (options.init_values_zero) {
         HIRSCHBERG_TYPED(zero_values)(iter->values);
     }
 
@@ -378,7 +378,7 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
     VALUE_TYPE *reverse_values = HIRSCHBERG_TYPED(reverse_values)(iter->values);
     size_t values_len = iter->values->size;
 
-    HIRSCHBERG_TYPED(function) *values_function = iter->values_function;
+    HIRSCHBERG_TYPED(function_t) *values_function = iter->values_function;
 
     // reverse flag is false on the forward pass and true on the reverse pass
     static const bool FORWARD = false;

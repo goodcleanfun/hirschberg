@@ -234,7 +234,7 @@ bool test_hirschberg_subproblem_lcs(lcs_test_t test) {
 
     hirschberg_uint64_sim_iter *iter = hirschberg_uint64_sim_iter_new(
         (string_pair_input_t){.s1 = s1, .m = m, .s2 = s2, .n = n},
-        (hirschberg_options_t){.utf8 = is_utf8, .allow_transpose = false, .zero_out_memory = true},
+        (hirschberg_options_t){.utf8 = is_utf8, .allow_transpose = false, .init_values_zero = true},
         hirschberg_uint64_sim_values_new(values_size),
         hirschberg_uint64_sim_function_new(is_utf8 ? test_hirschberg_lcs_utf8_cost : test_hirschberg_lcs_cost)
     );
