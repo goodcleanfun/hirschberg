@@ -32,6 +32,11 @@ typedef struct {
 #undef ARRAY_NAME
 #undef ARRAY_TYPE
 
+#ifndef OMP_PARALLEL_MIN_SIZE
+#define OMP_PARALLEL_MIN_SIZE_DEFINED
+#define OMP_PARALLEL_MIN_SIZE 1000
+#endif
+
 typedef enum {
     VALUE_FUNCTION_STANDARD = 0,
     VALUE_FUNCTION_OPTIONS = 1,
@@ -386,17 +391,49 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
     size_t size_used = 0;
     size_t rev_size_used = 0;
     if (values_function->type == VALUE_FUNCTION_STANDARD) {
-        size_used = values_function->func.standard(s1, sub_m, s2, n, FORWARD, forward_values, values_len);
-        rev_size_used = values_function->func.standard(s1 + sub_m, m - sub_m,
+        #pragma omp parallel sections num_threads(2) if (sub_m * n > OMP_PARALLEL_MIN_SIZE)
+        {
+            #pragma omp section
+            {
+                size_used = values_function->func.standard(s1, sub_m, s2, n, FORWARD, forward_values, values_len);
+            }
+            #pragma omp section
+            {
+                rev_size_used = values_function->func.standard(s1 + sub_m, m - sub_m,
                                                        s2, n, REVERSE, reverse_values, values_len);
+            }
+        }
     } else if (values_function->type == VALUE_FUNCTION_OPTIONS) {
-        size_used = values_function->func.options(s1, sub_m, s2, n, FORWARD, forward_values, values_len, values_function->options);
-        rev_size_used = values_function->func.options(s1 + sub_m, m - sub_m,
-                                                  s2, n, REVERSE, reverse_values, values_len, values_function->options);
+        #pragma omp parallel sections num_threads(2) if (sub_m * n > OMP_PARALLEL_MIN_SIZE)
+        {
+            #pragma omp section
+            {
+                size_used = values_function->func.options(s1, sub_m, s2, n, FORWARD, forward_values, values_len, values_function->options);
+            }
+            #pragma omp section
+            {
+                rev_size_used = values_function->func.options(s1 + sub_m, m - sub_m,
+                                                       s2, n, REVERSE, reverse_values, values_len, values_function->options);
+            }
+        }
     } else if (values_function->type == VALUE_FUNCTION_VARARGS) {
-        size_used = values_function->func.varargs(s1, sub_m, s2, n, FORWARD, forward_values, values_len, values_function->num_args, values_function->args);
-        rev_size_used = values_function->func.varargs(s1 + sub_m, m - sub_m,
-                                                  s2, n, REVERSE, reverse_values, values_len, values_function->num_args, values_function->args);
+        va_list args;
+        #pragma omp parallel sections num_threads(2) if (sub_m * n > OMP_PARALLEL_MIN_SIZE)
+        {
+            #pragma omp section
+            {
+                va_copy(args, values_function->args);
+                size_used = values_function->func.varargs(s1, sub_m, s2, n, FORWARD, forward_values, values_len, values_function->num_args, args);
+                va_end(args);
+            }
+            #pragma omp section
+            {
+                va_copy(args, values_function->args);
+                rev_size_used = values_function->func.varargs(s1 + sub_m, m - sub_m,
+                                                       s2, n, REVERSE, reverse_values, values_len, values_function->num_args, args);
+                va_end(args);
+            }
+        }
     } else {
         return false;
     }
@@ -507,4 +544,8 @@ static inline void HIRSCHBERG_TYPED(iter_destroy)(HIRSCHBERG_TYPED(iter) *iter) 
 #ifdef VALUE_EQUALS_DEFINED
 #undef VALUE_EQUALS
 #undef VALUE_EQUALS_DEFINED
+#endif
+#ifdef OMP_PARALLEL_MIN_SIZE_DEFINED
+#undef OMP_PARALLEL_MIN_SIZE
+#undef OMP_PARALLEL_MIN_SIZE_DEFINED
 #endif
