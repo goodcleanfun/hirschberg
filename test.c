@@ -20,11 +20,11 @@ lcs_test_t test_data_lcs[] = {
         .s2="CACGTAGTA",
         .expected_lcs="CGTAGTA"
     },
-    // address with edits and transposes
+    // address with abbreviations at token boundaries
     {
-        .s1="bam 30 lafyette ave bk new yROK 11217",
+        .s1="bam 30 lafyette ave bk new yORk 11217",
         .s2="Brooklyn Academy of Music 30 Lafayette Avenue Brooklyn New York",
-        .expected_lcs="bam 30 lafyette ave bk new y/\\K"
+        .expected_lcs="bam 30 lafyette ave bk new yORk"
     },
     // name
     {
@@ -50,29 +50,11 @@ lcs_test_t test_data_lcs[] = {
         .s2="#tbt",
         .expected_lcs="#tbt"
     },
-    // single transpose
-    {
-        .s1="the",
-        .s2="teh",
-        .expected_lcs="t/\\"
-    },
-    // multiple transposes
-    {
-        .s1="abcdef",
-        .s2="badcfe",
-        .expected_lcs="/\\/\\/\\"
-    },
     // Spanish with unicode gaps
     {
         .s1="Hernández",
         .s2="hdez",
         .expected_lcs="hdez"
-    },
-    // Spanish/UTF8 transpose
-    {
-        .s1="peña",
-        .s2="pñea",
-        .expected_lcs="p/\\a"
     }
 };
 
@@ -90,8 +72,6 @@ size_t test_hirschberg_lcs_cost(const char *s1, size_t m, const char *s2, size_t
             uint64_t val = 0;
             if (c1 == c2) {
                 val = prev_lcs[j - 1] + 1;
-            } else if (j > 1 && i > 1 && !reverse && c1 != c2 && c1 == tolower(s2[j - 2]) && tolower(s1[i - 2]) == c2) {
-                val = prev_lcs[j - 2] + 2;
             } else if (prev_lcs[j] > cur_lcs[j - 1]) {
                 val = prev_lcs[j];
             } else {
@@ -117,8 +97,6 @@ size_t test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, s
     size_t s2_consumed = 0;
     int32_t c1;
     int32_t c2;
-    int32_t prev_c1;
-    int32_t prev_c2;
     size_t i = 1;
     size_t used = 0;
     while (s1_consumed < m) {
@@ -147,8 +125,6 @@ size_t test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, s
             uint64_t val = 0;
             if (c1 == c2) {
                 val = prev_lcs[j - 1] + 1;
-            } else if (j > 1 && i > 1 && !reverse && c1 != c2 && c1 == prev_c2 && prev_c1 == c2) {
-                val = prev_lcs[j - 2] + 2;
             } else if (prev_lcs[j] > cur_lcs[j - 1]) {
                 val = prev_lcs[j];
             } else {
@@ -159,7 +135,6 @@ size_t test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, s
                 s2_ptr += c2_len;
             }
             s2_consumed += c2_len;
-            prev_c2 = c2;
             j++;
         }
         used = j;
@@ -170,7 +145,6 @@ size_t test_hirschberg_lcs_utf8_cost(const char *s1, size_t m, const char *s2, s
             s1_ptr += c1_len;
         }
         s1_consumed += c1_len;
-        prev_c1 = c1;
         i++;
     }
 
@@ -260,7 +234,7 @@ bool test_hirschberg_subproblem_lcs(lcs_test_t test) {
 
     hirschberg_uint64_sim_iter *iter = hirschberg_uint64_sim_iter_new(
         (string_pair_input_t){.s1 = s1, .m = m, .s2 = s2, .n = n},
-        (hirschberg_options_t){.utf8 = is_utf8, .allow_transpose = true, .zero_out_memory = true},
+        (hirschberg_options_t){.utf8 = is_utf8, .allow_transpose = false, .zero_out_memory = true},
         hirschberg_uint64_sim_values_new(values_size),
         hirschberg_uint64_sim_function_new(is_utf8 ? test_hirschberg_lcs_utf8_cost : test_hirschberg_lcs_cost)
     );

@@ -309,7 +309,8 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
     size_t m = sub.m;
     size_t n = sub.n;
 
-    bool single_char_one_side = false;
+    bool single_char_n = false;
+    bool single_char_m = false;
 
     if (m > 0 && n > 0) {
         if (utf8) {
@@ -319,8 +320,10 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
             if (s1_c1_len == m && s2_c1_len == n) {
                 iter->is_result = true;
                 return true;
-            } else if (s1_c1_len == m || s2_c1_len == n) {
-                single_char_one_side = true;
+            } else if (s1_c1_len == m) {
+                single_char_m = true;
+            } else if (s2_c1_len == n) {
+                single_char_n = true;
             }
             utf8proc_ssize_t s1_c2_len = utf8proc_iterate((const uint8_t *)s1 + s1_c1_len, -1, &s1_c2);
             utf8proc_ssize_t s2_c2_len = utf8proc_iterate((const uint8_t *)s2 + s2_c1_len, -1, &s2_c2);
@@ -336,8 +339,10 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
             if (m == 1 && n == 1) {
                 iter->is_result = true;
                 return true;
-            } else if (m == 1 || n == 1) {
-                single_char_one_side = true;
+            } else if (m == 1) {
+                single_char_m = true;
+            } else if (n == 1) {
+                single_char_n = true;
             } else if (m == 2 && n == 2 && CHAR_EQUAL(s1[0], s2[1])
                         && CHAR_EQUAL(s1[1], s2[0])
                         && !(CHAR_EQUAL(s1[0], s1[1]))
@@ -407,8 +412,6 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
     VALUE_TYPE opt_sum = (VALUE_TYPE) MAX_VALUE;
     #endif
 
-    bool opt_sum_improved = false;
-
     #ifndef VALUE_EQUALS
     #define VALUE_EQUALS_DEFINED
     #define VALUE_EQUALS(a, b) ((a) == (b))
@@ -419,22 +422,24 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
         size_t s2_consumed = 0;
         for (size_t j = 0; j < size_used; j++) {
             size_t c_len = utf8_next(s2_ptr);
-            forward_values[j] += reverse_values[size_used - j - 1];
-            if (forward_values[j] IMPROVES opt_sum || (!opt_sum_improved && VALUE_EQUALS(forward_values[j], opt_sum))) {
-                opt_sum_improved = !single_char_one_side; // handles m = 1 and n = 1
+            VALUE_TYPE rev_value = reverse_values[size_used - j - 1];
+            VALUE_TYPE forward_value = forward_values[j];
+            VALUE_TYPE value = forward_value + rev_value;
+            if (value IMPROVES opt_sum || (VALUE_EQUALS(value, opt_sum))) {
                 sub_n = s2_consumed;
-                opt_sum = forward_values[j];
+                opt_sum = value;
             }
             s2_consumed += c_len;
             s2_ptr += c_len;
         }
     } else {
         for (size_t j = 0; j < size_used; j++) {
-            forward_values[j] += reverse_values[size_used - j - 1];
-            if (forward_values[j] IMPROVES opt_sum || (!opt_sum_improved && VALUE_EQUALS(forward_values[j], opt_sum))) {
-                opt_sum_improved = !single_char_one_side; // handles m = 1 and n = 1
+            VALUE_TYPE forward_value = forward_values[j];
+            VALUE_TYPE rev_value = reverse_values[size_used - j - 1];
+            VALUE_TYPE value = forward_value + rev_value;
+            if (value IMPROVES opt_sum || (VALUE_EQUALS(value, opt_sum))) {
                 sub_n = j;
-                opt_sum = forward_values[j];
+                opt_sum = value;
             }
         }
     }
@@ -445,6 +450,18 @@ static bool HIRSCHBERG_TYPED(iter_next)(HIRSCHBERG_TYPED(iter) *iter) {
             sub_n = 1;
         } else {
             sub_m = utf8_next(s1);
+            sub_n = utf8_next(s2);
+        }
+    } else if (sub_m == 0 && sub_n == n && !single_char_m) {
+        if (!utf8) {
+            sub_m = 1;
+        } else {
+            sub_m = utf8_next(s1);
+        }
+    } else if (sub_n == 0 && sub_m == m && !single_char_n) {
+        if (!utf8) {
+            sub_n = 1;
+        } else {
             sub_n = utf8_next(s2);
         }
     }
